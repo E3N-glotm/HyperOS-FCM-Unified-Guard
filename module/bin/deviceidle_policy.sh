@@ -9,7 +9,7 @@ PKG=com.google.android.gms
 MODE=observe
 [ -r "$CONF" ] && . "$CONF"
 case "${DEVICEIDLE_GMS_POLICY:-observe}" in
-  observe|enforce) MODE=$DEVICEIDLE_GMS_POLICY ;;
+  observe|enforce) MODE=${DEVICEIDLE_GMS_POLICY:-observe} ;;
   *) MODE=observe ;;
 esac
 

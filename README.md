@@ -4,7 +4,7 @@
 
 面向 Xiaomi HyperOS 的独立 Magisk 模块，基于 [E3N Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard) 的 MIT 许可实现，研究如何在**不依赖 LSPosed** 的情况下，用 Android/Magisk 可用的原生接口覆盖部分 [HyperOS FCM Live](https://github.com/E3N-glotm/HyperOS_FCM_Live) 功能。
 
-**v0.1.0：实验版（Magisk-only，不是 FCM Live 的完全替代品）。** 后者基于 [Howard20181](https://github.com/Howard20181/HyperOS_FCM_Live) 的 GPL-3.0 项目，本仓库**没有复制其 Hook 代码**，也不声称实现相同的进程内拦截。
+**v0.1.1：实验版（Magisk-only，不是 FCM Live 的完全替代品）。** 后者基于 [Howard20181](https://github.com/Howard20181/HyperOS_FCM_Live) 的 GPL-3.0 项目，本仓库**没有复制其 Hook 代码**，也不声称实现相同的进程内拦截。
 
 ## 功能
 

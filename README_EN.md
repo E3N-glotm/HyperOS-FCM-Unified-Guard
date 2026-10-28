@@ -4,7 +4,7 @@
 
 Experimental independent **Magisk-only** fork of the [Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard) policy/FCM recovery engine. Adds native Android DeviceIdle exemption introspection and an explicitly opt-in GMS exemption. It does **not** use LSPosed, Zygisk Java injection, or hidden method patching.
 
-**v0.1.0 is not a complete replacement for [HyperOS FCM Live](https://github.com/E3N-glotm/HyperOS_FCM_Live).** Its in-process PowerKeeper, Greeze and BroadcastQueue hooks cannot be replicated by ordinary shell commands. No GPL-3.0 Xposed source was copied into this MIT-licensed project.
+**v0.1.1 is not a complete replacement for [HyperOS FCM Live](https://github.com/E3N-glotm/HyperOS_FCM_Live).** Its in-process PowerKeeper, Greeze and BroadcastQueue hooks cannot be replicated by ordinary shell commands. No GPL-3.0 Xposed source was copied into this MIT-licensed project.
 
 The module retains the original owner's safe no-restrict reconciliation, GMS limiter probing, Android DNS-aware FCM recovery, stale MCS heartbeat checks, soft reconnect and narrowly scoped SwipeUpClean `stopped` repair.
 

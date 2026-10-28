@@ -21,6 +21,9 @@ chmod +x "$T/bin/cmd"
 export PATH="$T/bin:$PATH" FCM_UNIFIED_RUNTIME="$T/run" MOCK_LIST="$T/list"
 SCRIPT="$ROOT/module/bin/deviceidle_policy.sh"
 printf 'system,com.google.android.gms,10139\n' > "$T/list"
+sh "$SCRIPT" status >/dev/null
+sh "$SCRIPT" apply >/dev/null
+[ ! -e "$T/run/deviceidle-owned.list" ] || exit 9
 printf 'DEVICEIDLE_GMS_POLICY=enforce\n' > "$T/run/unified.conf"
 sh "$SCRIPT" apply >/dev/null
 [ ! -e "$T/run/deviceidle-owned.list" ] || exit 10
