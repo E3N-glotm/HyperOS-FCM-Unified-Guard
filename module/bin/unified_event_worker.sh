@@ -28,7 +28,8 @@ while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
   while IFS= read -r line; do
     case "$line" in
       *am_kill*' due to SwipeUpClean'*)
-        /system/bin/sh "$MODDIR/bin/swipe_unstop_worker.sh" --handle-line "$line" >/dev/null 2>&1 || true
+        # Never pass the private event FIFO through cmd/am/dumpsys Binder FDs.
+        /system/bin/sh "$MODDIR/bin/swipe_unstop_worker.sh" --handle-line "$line" </dev/null >/dev/null 2>&1 || true
         ;;
       *whetstone.activity*'sourcePkg=com.google.android.gms'*)
         # Alarm bursts can contain multiple delivery records for one wakeup.
@@ -43,7 +44,7 @@ while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
           kill -0 "$alarm_guard" 2>/dev/null && continue
           wait "$alarm_guard" 2>/dev/null || true
         fi
-        /system/bin/sh "$MODDIR/bin/fcm_guard.sh" alarm-event >/dev/null 2>&1 &
+        /system/bin/sh "$MODDIR/bin/fcm_guard.sh" alarm-event </dev/null >/dev/null 2>&1 &
         alarm_guard=$!
         ;;
     esac

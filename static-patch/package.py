@@ -4,7 +4,8 @@ import hashlib, pathlib, zipfile
 ROOT=pathlib.Path(__file__).resolve().parent
 repo=ROOT.parent
 out=repo/"dist";out.mkdir(exist_ok=True)
-target=out/"HyperOS-FCM-Unified-Guard-v0.3.0-alpha.1-static.zip"
+version=next(line.split("=",1)[1] for line in (ROOT/"overlay/module.prop").read_text().splitlines() if line.startswith("version="))
+target=out/f"HyperOS-FCM-Unified-Guard-v{version}-static.zip"
 files={}
 for p in (repo/"module").rglob("*"):
  if not p.is_file():continue
