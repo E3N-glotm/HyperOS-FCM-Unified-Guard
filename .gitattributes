@@ -1,0 +1,4 @@
+*.sh text eol=lf
+module/bin/* text eol=lf
+module/module.prop text eol=lf
+extras/box-for-root/net.inotify text eol=lf

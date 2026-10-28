@@ -1,0 +1,51 @@
+name: Validate and release unified Magisk module
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'module/**'
+      - 'tests/**'
+      - 'build.sh'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell scripts and policy boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in module/*.sh module/bin/*.sh; do sh -n "$file"; done
+          sh tests/test_reconcile_lock.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_scope_boundaries.sh
+          sh tests/test_unified_policy.sh
+          grep -q '^id=fcm_unified_guard$' module/module.prop
+          grep -q '^version=0.1.0$' module/module.prop
+      - name: Build Magisk ZIP
+        shell: bash
+        run: |
+          bash build.sh
+          bash tests/test_release_line_endings.sh dist/HyperOS-FCM-Unified-Guard-v0.1.0.zip
+          cd dist
+          sha256sum HyperOS-FCM-Unified-Guard-v0.1.0.zip > SHA256SUMS.txt
+      - name: Publish experimental release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.0 >/dev/null 2>&1; then
+            echo "v0.1.0 exists; skip publishing unchanged release"
+            exit 0
+          fi
+          gh release create v0.1.0 dist/HyperOS-FCM-Unified-Guard-v0.1.0.zip dist/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.1.0 (实验版)" \
+            --notes "Magisk-only experimental consolidation of Millet Guard with optional native DeviceIdle handling. No LSPosed/PowerKeeper/Greeze Java Hook replacement; do not run together with the original Millet Guard." --prerelease

@@ -1,0 +1,65 @@
+#!/system/bin/sh
+MODDIR=${0%/*}/..
+. "$MODDIR/bin/lib.sh"
+usage() {
+  cat <<'TXT'
+FCM Unified Guard control
+  milletctl list
+  milletctl add <package.name>
+  milletctl remove <package.name>
+  milletctl status
+  milletctl apply
+  milletctl config
+TXT
+}
+ensure_config() {
+  mkdir -p "$RUNDIR"
+  [ -f "$CONFIG" ] || printf '%s\n' 'com.google.android.gms' > "$CONFIG"
+  chmod 600 "$CONFIG"
+}
+cmd=$1
+case "$cmd" in
+  list)
+    ensure_config
+    echo 'Managed packages:'
+    managed_list | sed 's/^/  /'
+    ;;
+  add)
+    ensure_config
+    pkg=$2
+    valid_pkg "$pkg" || { echo "Invalid package name: $pkg" >&2; exit 2; }
+    if ! normalize_file "$CONFIG" | grep -Fxq "$pkg"; then
+      printf '%s\n' "$pkg" >> "$CONFIG"
+    fi
+    /system/bin/sh "$MODDIR/bin/reconcile.sh" ctl-add
+    echo "Added: $pkg"
+    ;;
+  remove|rm|del)
+    ensure_config
+    pkg=$2
+    valid_pkg "$pkg" || { echo "Invalid package name: $pkg" >&2; exit 2; }
+    tmp=$CONFIG.tmp.$$
+    awk -v p="$pkg" '$0!=p' "$CONFIG" > "$tmp" && mv -f "$tmp" "$CONFIG"
+    chmod 600 "$CONFIG"
+    /system/bin/sh "$MODDIR/bin/reconcile.sh" ctl-remove
+    echo "Removed: $pkg"
+    ;;
+  status)
+    ensure_config
+    echo "Config: $CONFIG"
+    echo 'Managed:'; managed_list | sed 's/^/  /'
+    echo "Effective MILLET_NO_RESTRICT_APP: $(settings --user 0 get system MILLET_NO_RESTRICT_APP 2>/dev/null)"
+    echo "Millet master: $(getprop persist.sys.powmillet.enable)"
+    echo "GMS limiter: $(run_timeout dumpsys greezer 2>/dev/null | grep -m1 'mGmsLimitEnabled' || echo unavailable)"
+    ;;
+  apply)
+    ensure_config
+    /system/bin/sh "$MODDIR/bin/reconcile.sh" ctl-apply
+    echo 'Applied.'
+    ;;
+  config)
+    ensure_config
+    echo "$CONFIG"
+    ;;
+  *) usage; exit 1 ;;
+esac

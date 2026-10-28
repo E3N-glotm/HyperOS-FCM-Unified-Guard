@@ -1,0 +1,7 @@
+id=fcm_unified_guard
+name=HyperOS FCM Unified Guard
+version=0.1.0
+versionCode=100
+author=E3N
+summary=Magisk 原生后台豁免与 FCM 分层自愈实验版
+description=融合 Millet Guard 后台免冻结与 FCM 自愈，增加 DeviceIdle 原生接口诊断；不依赖 LSPosed，但不能替代 FCM Live 的系统广播 Hook。
