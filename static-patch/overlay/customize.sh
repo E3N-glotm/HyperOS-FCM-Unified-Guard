@@ -60,4 +60,3 @@ ui_print "- One Magisk module; no FCM Live APK, LSPosed or Zygisk dependency"
 ui_print "- Original modules were not removed or disabled by this installer"
 ui_print "- Disable/remove legacy Millet Guard and FCM Live before the test reboot"
 ui_print "- ROM/hash mismatch and incomplete previous boot cause the static backend to stay off"
-

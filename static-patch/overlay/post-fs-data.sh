@@ -31,4 +31,3 @@ if ! mount -o bind "$MODDIR/patched/miui-services.jar" /system_ext/framework/miu
   fail "miui-services bind failed; first mount reverted"
 fi
 printf '%s\n' "MOUNTED: static policy; awaiting Android boot completion" > "$STATUS"
-

@@ -40,4 +40,3 @@ with zipfile.ZipFile(target) as z:
 digest=hashlib.sha256(target.read_bytes()).hexdigest()
 target.with_suffix(".zip.sha256").write_text(digest+"  "+target.name+"\n",encoding="ascii")
 print(target);print("SHA256",digest);print("ZIP contents PASS: no APK / LSPosed bridge / Zygisk / prebuilt Xiaomi JAR")
-

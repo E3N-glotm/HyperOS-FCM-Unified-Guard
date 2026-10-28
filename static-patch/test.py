@@ -15,4 +15,3 @@ def main():
  run([javac,"--release","8","-cp",cp,"-d",out,ROOT/"test-patcher/PatcherTest.java"])
  run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.PatcherTest"])
 if __name__=="__main__":main()
-

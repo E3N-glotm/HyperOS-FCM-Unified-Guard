@@ -5,7 +5,7 @@
 手机通过完整 ZIP 在 /data/local/tmp/fcmu-static-analysis/install-candidate 完成隔离安装，退出码 0；配置定向到独立 install-runtime，未调用 post-fs-data 挂载或 service，活动模块保持原状。
 
 实测 ZIP SHA-256：
-9453f829c48cb0f1238ee10396d817759d283cb9e14f9ed361fba4ab802194f3
+c9f846f47e33a421a8e2a7bab1daaa35e6ba4828092a0f910cbcb721309cfa03
 
 该包的补丁生成器 SHA-256：
 67de50cae4d9856017138d5da7f1519068e69ce60449a5045c1c415a2015db42
@@ -31,4 +31,3 @@ f2b78b295bd613f02081a7c952023800ab28dd85948461fdea26ffd3b8eb55dc
 未以新模块替换原组合，未执行加载此补丁的完整重启；尚未证明真实消息的到达率、长锁屏与网络切换表现，以及功耗是否与原组合持平或更低。
 
 因此“单 Magisk 安装包、无需两旧模块/LSPosed”的构建与离线实现已验证；运行时等效性尚未验收，不能将本文结果宣传为替换已经成功。
-

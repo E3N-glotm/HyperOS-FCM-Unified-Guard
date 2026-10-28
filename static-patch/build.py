@@ -49,4 +49,3 @@ def main():
         f=out/name
         print(name, f.stat().st_size, hashlib.sha256(f.read_bytes()).hexdigest())
 if __name__ == "__main__": main()
-

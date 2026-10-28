@@ -32,4 +32,3 @@ jobs:
             dist/HyperOS-FCM-Unified-Guard-v0.3.0-alpha.1-static.zip
             dist/HyperOS-FCM-Unified-Guard-v0.3.0-alpha.1-static.zip.sha256
           if-no-files-found: error
-

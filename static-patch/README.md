@@ -47,4 +47,3 @@ python static-patch/package.py
 ## 许可与来源
 
 静态策略源于 Howard20181 的 HyperOS_FCM_Live 与 E3N HyperOS 4 修复分支，相关源码按 GPL-3.0-only 提供，完整许可证见 ../bridge-source/LICENSE；已有统一守护核心保留原 MIT 许可。安装包附带两份许可证。静态修补思路也参考了 biplobsd/fcm_notification_fix，但本目录未直接复制其补丁实现或附加通知功能。
-

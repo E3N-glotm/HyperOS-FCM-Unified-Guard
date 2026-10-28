@@ -9,4 +9,3 @@ hash_file() { sha256sum "$1" | cut -d ' ' -f 1; }
   exit 1
 }
 echo "STATIC_FILES_OK: services + miui-services; no LSPosed/APK bridge required"
-

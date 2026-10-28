@@ -4,4 +4,3 @@ version=0.3.0-alpha.1
 versionCode=30001
 author=E3N
 description=Single Magisk-only FCM candidate. Generated per-ROM static policy plus Millet/FCM recovery core. No LSPosed, Zygisk or FCM Live APK. Xiaomi pudding OS4.0.5.0 only. Runtime equivalence and battery A/B pending.
-

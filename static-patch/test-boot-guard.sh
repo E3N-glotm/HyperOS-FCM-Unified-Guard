@@ -54,4 +54,3 @@ for SCENARIO in success ota hash pending partial; do
  esac
 done
 echo 'PASS boot guard: successful mounts, OTA mismatch, hash mismatch, incomplete previous boot, partial mount rollback'
-
