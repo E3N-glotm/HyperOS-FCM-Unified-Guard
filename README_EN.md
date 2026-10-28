@@ -1,25 +1,11 @@
 # HyperOS FCM Unified Guard
 
-**[简体中文](README.md) | English**
+v0.2.0 integrates the Millet Guard core and the verified E3N FCM Live bridge in one repository and Magisk ZIP. **Full functionality requires LSPosed** with `system` and `com.miui.powerkeeper` scopes. The existing verified bridge is reused, not loaded twice.
 
-Experimental independent **Magisk-only** fork of the [Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard) policy/FCM recovery engine. Adds native Android DeviceIdle exemption introspection and an explicitly opt-in GMS exemption. It does **not** use LSPosed, Zygisk Java injection, or hidden method patching.
+The core streams filesystem events instead of spawning handlers for unrelated settings writes, separates FCM health from settings reconciliation, combines logcat subscriptions and maintenance timers, and eliminates redundant healthy-state GcmService dumps. Heartbeat-discovered disconnections still enter recovery. No additional wake lock or wakeup alarm is introduced.
 
-**v0.1.1 is not a complete replacement for [HyperOS FCM Live](https://github.com/E3N-glotm/HyperOS_FCM_Live).** Its in-process PowerKeeper, Greeze and BroadcastQueue hooks cannot be replicated by ordinary shell commands. No GPL-3.0 Xposed source was copied into this MIT-licensed project.
+Disable the original Millet Guard core before enabling this core. Preserve its package list and ownership records during migration. To install a missing bridge, run `sh /data/adb/modules/fcm_unified_guard/bin/bridgectl install`, enable its LSPosed scopes, and reboot. Existing APKs and scope databases are never overwritten. Uninstalling the core does not uninstall a pre-existing bridge.
 
-The module retains the original owner's safe no-restrict reconciliation, GMS limiter probing, Android DNS-aware FCM recovery, stale MCS heartbeat checks, soft reconnect and narrowly scoped SwipeUpClean `stopped` repair.
+This retains the original bridge's stopped-package broadcast flag behavior as well. Do not claim that all Force Stop semantics are unaffected. Hook registration and connection status are not proof of end-to-end delivery or longer battery life; see [validation](docs/VALIDATION.md).
 
-## Installation
-
-Install the Magisk ZIP and reboot, but do not run this alongside the original Millet Guard. The module will refuse to start its workers if the original Magisk module is enabled. It does not automatically disable any old module or LSPosed scope.
-
-Runtime configuration:
-- `/data/adb/fcm_unified_guard/packages.list` (defaults to GMS alone)
-- `/data/adb/fcm_unified_guard/unified.conf`
-
-`DEVICEIDLE_GMS_POLICY=observe` (default) is read-only. `enforce` requests native GMS exemption when it is not already present and remembers ownership for uninstall. Magisk Action displays the native audit and logs.
-
-To compare with E3N FCM Live, explicitly disable its LSPosed scope separately, reboot, and test notification delivery, MCS uptime and battery usage on the same device/network. No lower battery usage or equal end-to-end FCM performance is claimed without an A/B trial. Restore your original module configuration if anything fails.
-
-## Attribution and license
-
-Derived from E3N [Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard) under MIT. [HyperOS FCM Live](https://github.com/Howard20181/HyperOS_FCM_Live) by Howard20181 is GPL-3.0; its source and binaries are not included here.
+Build: `bash build.sh`. Shell code is MIT under root `LICENSE`; the separately bundled bridge is GPL-3.0 and is NOT covered by that MIT license. Complete corresponding source and build scripts are in `bridge-source/`, including its GPL license. See `module/bridge/PROVENANCE.txt` for the exact revision and checksum. The bridge uses the original tested debug signature; rebuilding can produce a different certificate. Build its source with JDK 21, Android SDK 37 and `bash gradlew :HyperFCMLive:assembleDebug` from `bridge-source/`.

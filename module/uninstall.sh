@@ -2,13 +2,8 @@
 MODDIR=${0%/*}
 RUNDIR=/data/adb/fcm_unified_guard
 /system/bin/sh "$MODDIR/bin/deviceidle_policy.sh" restore >/dev/null 2>&1 || true
-# Stop module-owned workers.
-for f in inotifyd.pid safety.pid fcm.pid fcm_event.pid swipe_unstop.pid; do
-  if [ -f "$RUNDIR/$f" ]; then
-    pid=$(cat "$RUNDIR/$f" 2>/dev/null)
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-  fi
-done
+# The bridge may predate this module. Never uninstall it or edit LSPosed scope.
+/system/bin/sh "$MODDIR/bin/runtime_workers.sh" stop
 # Remove only entries last owned by this module, preserving every unrelated
 # system/user/other-module entry.
 OWNED=$RUNDIR/managed.last

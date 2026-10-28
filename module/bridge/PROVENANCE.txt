@@ -1,0 +1,10 @@
+Component: E3N HyperOS FCM Live v1.4.1-e3n-os4 (GPL-3.0)
+Original author: Howard20181; HyperOS 4 compatibility fork: E3N
+Source: https://github.com/E3N-glotm/HyperOS_FCM_Live
+Source revision: 5b6e3f13bf1fca214d5e90e10ba41651fa9ae30a
+Release: https://github.com/E3N-glotm/HyperOS_FCM_Live/releases/tag/v1.4.1-e3n-os4
+APK: HyperFCMLive-1.4.1-e3n-os4.17-debug.apk
+SHA256: 7ef95f78db07fa41d723fca0792b92eb5b1efa1add91f3858bf52e6ce26cb0ae
+Complete corresponding source and build scripts: bridge-source/ in this repository.
+This is the original tested debug-signed binary, not a new reproducible release signature.
+Do not overwrite an installed APK with a different certificate.

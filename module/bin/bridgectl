@@ -1,0 +1,19 @@
+#!/system/bin/sh
+MODDIR=${0%/*}/..
+PKG=io.github.e3n.hyperos.fcmlive
+APK=$MODDIR/bridge/HyperFCMLive-1.4.1-e3n-os4.17-debug.apk
+EXPECTED=7ef95f78db07fa41d723fca0792b92eb5b1efa1add91f3858bf52e6ce26cb0ae
+case "${1:-status}" in
+  status) exec /system/bin/sh "$MODDIR/bin/bridge_status.sh";;
+  install)
+    installed=$(pm path "$PKG" 2>/dev/null | sed -n 's/^package://p' | head -n 1)
+    if [ -n "$installed" ]; then
+      echo 'Existing bridge retained; no signing-certificate or scope changes.'
+      exec /system/bin/sh "$MODDIR/bin/bridge_status.sh"
+    fi
+    [ "$(sha256sum "$APK" | cut -d' ' -f1)" = "$EXPECTED" ] || exit 1
+    pm install "$APK" || exit 1
+    echo 'Enable E3N FCM Live in LSPosed for system and com.miui.powerkeeper; reboot to activate.'
+    ;;
+  *) echo 'Usage: bridgectl status|install'; exit 2;;
+esac

@@ -169,11 +169,13 @@ fcm_state() {
 }
 
 connected_keepalive() {
+  KEEPALIVE_PROBED=0
   ka_now=$1
   ka_last=$(cat "$KEEPALIVE_FILE" 2>/dev/null)
   case "$ka_last" in ''|*[!0-9]*) ka_last=0;; esac
   [ $((ka_now-ka_last)) -ge "$KEEPALIVE_INTERVAL" ] 2>/dev/null || return 0
   printf '%s\n' "$ka_now" > "$KEEPALIVE_FILE"
+  KEEPALIVE_PROBED=1
 
   # GcmService can report connected=true while the underlying MCS socket has
   # already gone stale behind a mobile/NAT path. Sending Google's own native
@@ -430,7 +432,9 @@ case "$state" in
     # The heartbeat probe itself can expose a half-open MCS session. Re-read
     # GcmService before clearing outage metadata; otherwise the disconnect
     # discovered by the heartbeat is immediately forgotten until a later pass.
-    state=$(fcm_state)
+    # Ordinary healthy checks need one binder dump. Only a heartbeat can
+    # change the state during this pass; keep its fresh read and recovery.
+    [ "$KEEPALIVE_PROBED" = 0 ] || state=$(fcm_state)
     if [ "$state" = connected ]; then
       rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
       exit 0

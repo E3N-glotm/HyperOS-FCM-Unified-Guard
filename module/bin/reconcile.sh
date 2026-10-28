@@ -107,30 +107,47 @@ cleanup() {
 trap 'cleanup' EXIT HUP INT TERM
 managed_list > "$TMPDES"
 owned_list > "$TMPOWN"
+# Use ONE validated snapshot for both base and current. Do not perform a
+# write when SettingsProvider is temporarily failing Binder transactions.
+setting_before=$(setting_list) || {
+  log_msg "SKIP reconcile[$1]: SettingsProvider read failed/invalid; no write"
+  exit 0
+}
 # Ownership-aware merge:
 #   base = effective setting - entries managed by us on the previous run
 #   new  = base + current desired managed entries
 # This preserves external/system entries while allowing users to REMOVE apps
 # from packages.list without stale entries being resurrected.
-setting_list | while IFS= read -r pkg; do
+printf '%s\n' "$setting_before" | while IFS= read -r pkg; do
   if ! grep -Fxq "$pkg" "$TMPOWN" 2>/dev/null; then
     printf '%s\n' "$pkg"
   fi
 done > "$TMPBASE"
 cat "$TMPBASE" "$TMPDES" | sed '/^$/d' | awk '!seen[$0]++' > "$TMPNEW"
-current=$(setting_list | join_csv)
+current=$(printf '%s\n' "$setting_before" | join_csv)
 desired=$(cat "$TMPNEW" | join_csv)
 if [ "$current" != "$desired" ]; then
   if [ -n "$desired" ]; then
-    settings --user 0 put system MILLET_NO_RESTRICT_APP "$desired" >/dev/null 2>&1
+    settings --user 0 put system MILLET_NO_RESTRICT_APP "$desired" >/dev/null 2>&1 || {
+      log_msg "SKIP reconcile[$1]: SettingsProvider write failed"
+      exit 0
+    }
   else
-    settings --user 0 delete system MILLET_NO_RESTRICT_APP >/dev/null 2>&1
+    settings --user 0 delete system MILLET_NO_RESTRICT_APP >/dev/null 2>&1 || {
+      log_msg "SKIP reconcile[$1]: SettingsProvider delete failed"
+      exit 0
+    }
   fi
-  verify=$(setting_list | join_csv)
+  verify_list=$(setting_list) || {
+    log_msg "SKIP reconcile[$1]: cannot verify SettingsProvider write; keeping previous ownership"
+    exit 0
+  }
+  verify=$(printf '%s\n' "$verify_list" | join_csv)
   if [ "$verify" = "$desired" ]; then
     log_msg "reconciled[$1]: $verify"
   else
     log_msg "ERROR reconcile[$1] expected='$desired' got='$verify'"
+    exit 0
   fi
 fi
 cp -f "$TMPDES" "$OWNED"
@@ -158,5 +175,10 @@ if grep -Fxq 'com.google.android.gms' "$TMPDES"; then
     [ -n "$sspid" ] && echo "$sspid" > "$RUNDIR/system_server.pid"
     echo "$now" > "$RUNDIR/limiter_check.epoch"
   fi
-  /system/bin/sh "$MODDIR/bin/fcm_guard.sh" "$1" >/dev/null 2>&1 || true
+  # Dedicated timer and GMS event stream already own FCM health. Settings
+  # writes must not turn unrelated preferences into repeated binder dumps.
+  case "${1:-}" in
+    boot|action|ctl-apply)
+      /system/bin/sh "$MODDIR/bin/fcm_guard.sh" "$1" >/dev/null 2>&1 || true;;
+  esac
 fi

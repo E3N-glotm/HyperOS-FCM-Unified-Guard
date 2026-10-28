@@ -7,73 +7,48 @@ BB=/data/adb/magisk/busybox
 [ -x "$BB" ] || BB=busybox
 mkdir -p "$RUNDIR"
 chmod 700 "$RUNDIR"
+. "$MODDIR/bin/runtime_workers.sh"
+# Serialize starts and reject stale lock owners using /proc start ticks.
+START_LOCK=$RUNDIR/startup.lock
+if ! mkdir "$START_LOCK" 2>/dev/null; then
+  read -r previous_pid previous_ticks < "$START_LOCK/owner" 2>/dev/null || exit 0
+  [ "$(worker_ticks "$previous_pid")" != "$previous_ticks" ] || exit 0
+  rm -f "$START_LOCK/owner"
+  rmdir "$START_LOCK" 2>/dev/null || exit 0
+  mkdir "$START_LOCK" 2>/dev/null || exit 0
+fi
+printf '%s %s\n' "$$" "$(worker_ticks $$)" > "$START_LOCK/owner"
+trap 'rm -f "$START_LOCK/owner"; rmdir "$START_LOCK" 2>/dev/null' EXIT
+trap 'exit 0' HUP INT TERM
+stop_workers
+if [ -e "$MODDIR/disable" ] || [ -e "$MODDIR/remove" ]; then
+  echo 'DISABLED: workers not started' > "$RUNDIR/startup-status.txt"
+  exit 0
+fi
 if [ -d /data/adb/modules/gms_millet_guard ] &&
    [ ! -e /data/adb/modules/gms_millet_guard/disable ] &&
    [ ! -e /data/adb/modules/gms_millet_guard/remove ]; then
-  echo "CONFLICT: Millet Guard still enabled; Unified Guard refuses to start duplicate writers" > "$RUNDIR/startup-status.txt"
+  echo 'CONFLICT: Millet Guard still enabled; Unified Guard refuses duplicate writers' > "$RUNDIR/startup-status.txt"
   exit 0
 fi
-echo "ACTIVE: standalone Magisk mode (LSPosed hooks not replicated)" > "$RUNDIR/startup-status.txt"
-chmod 0755 "$MODDIR/bin/inotify_handler.sh" "$MODDIR/bin/reconcile.sh" "$MODDIR/bin/milletctl" "$MODDIR/bin/fcm_guard.sh" "$MODDIR/bin/fcm_event_worker.sh" "$MODDIR/bin/swipe_unstop_worker.sh" 2>/dev/null || true
-# v2.0.2 and newer use owner metadata for the reconcile lock. An ownerless
-# lock left by v2.0.1 can otherwise survive an in-place module upgrade until
-# its first safety pass. Reap only the legacy ownerless form here, before any
-# new reconciliation process can exist.
 if [ -d "$RUNDIR/reconcile.lock" ] && [ ! -f "$RUNDIR/reconcile.lock/owner" ]; then
-  rm -rf "$RUNDIR/reconcile.lock" 2>/dev/null || true
+  rmdir "$RUNDIR/reconcile.lock" 2>/dev/null || true
 fi
-log() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"
-  lines=$(wc -l < "$LOG" 2>/dev/null || echo 0)
-  if [ "$lines" -gt 500 ] 2>/dev/null; then
-    tail -n 300 "$LOG" > "$LOG.tmp" && mv -f "$LOG.tmp" "$LOG"
-  fi
-}
-# Wait for SettingsProvider/system_server.
 i=0
-while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt 180 ]; do
+while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$i" -lt 180 ]; do
   sleep 2
   i=$((i+1))
 done
+[ "$(getprop sys.boot_completed)" = 1 ] || exit 0
 sleep 8
 /system/bin/sh "$MODDIR/bin/reconcile.sh" boot
 /system/bin/sh "$MODDIR/bin/deviceidle_policy.sh" apply >/dev/null 2>&1 || true
-# Stop stale module-owned workers.
-for f in inotifyd.pid safety.pid fcm.pid fcm_event.pid swipe_unstop.pid; do
-  if [ -f "$RUNDIR/$f" ]; then
-    old=$(cat "$RUNDIR/$f" 2>/dev/null)
-    [ -n "$old" ] && kill "$old" 2>/dev/null || true
-  fi
-done
-# Primary path: event-driven SettingsProvider watcher.
-"$BB" inotifyd "$MODDIR/bin/inotify_handler.sh" /data/system/users/0:wymnD >/dev/null 2>&1 &
-echo $! > "$RUNDIR/inotifyd.pid"
-# Low-frequency fallback for missed events and runtime Xiaomi policy changes.
-(
-  while true; do
-    sleep 300
-    /system/bin/sh "$MODDIR/bin/reconcile.sh" safety
-  done
-) >/dev/null 2>&1 &
-echo $! > "$RUNDIR/safety.pid"
-# FCM health is deliberately independent of reconcile.sh. A SettingsProvider
-# failure or reconciliation lock must not disable push recovery again. This is
-# only a fallback: deep suspend can defer shell sleeps, so the event worker
-# below also piggybacks on GMS's own AlarmManager wakeups.
-(
-  while true; do
-    sleep 120
-    grep -Fxq 'com.google.android.gms' "$RUNDIR/packages.list" 2>/dev/null || continue
-    /system/bin/sh "$MODDIR/bin/fcm_guard.sh" poll
-  done
-) >/dev/null 2>&1 &
-echo $! > "$RUNDIR/fcm.pid"
-# No new timer/wakelock: observe existing GMS alarm deliveries and check FCM
-# when HyperOS has already woken the push stack.
-/system/bin/sh "$MODDIR/bin/fcm_event_worker.sh" >/dev/null 2>&1 &
-echo $! > "$RUNDIR/fcm_event.pid"
-# HyperOS Recents swipe may force-stop a managed package. On Android 16,
-# clear only that stopped bit so FCM remains eligible to wake the dead process.
-/system/bin/sh "$MODDIR/bin/swipe_unstop_worker.sh" >/dev/null 2>&1 &
-echo $! > "$RUNDIR/swipe_unstop.pid"
-log "started inotify=$(cat "$RUNDIR/inotifyd.pid") safety=$(cat "$RUNDIR/safety.pid") fcm=$(cat "$RUNDIR/fcm.pid") fcm_event=$(cat "$RUNDIR/fcm_event.pid") swipe_unstop=$(cat "$RUNDIR/swipe_unstop.pid")"
+/system/bin/sh "$MODDIR/bin/bridge_status.sh" > "$RUNDIR/bridge-status.txt" 2>&1 || true
+/system/bin/sh "$MODDIR/bin/settings_worker.sh" >/dev/null 2>&1 &
+record_worker settings $!
+/system/bin/sh "$MODDIR/bin/maintenance_worker.sh" >/dev/null 2>&1 &
+record_worker maintenance $!
+/system/bin/sh "$MODDIR/bin/unified_event_worker.sh" >/dev/null 2>&1 &
+record_worker events $!
+echo 'ACTIVE: unified core; bridge registration tracked separately in bridge-status.txt' > "$RUNDIR/startup-status.txt"
+echo "$(date '+%Y-%m-%d %H:%M:%S') started unified maintenance + single event stream" >> "$LOG"

@@ -22,7 +22,9 @@ CONF
 fi
 ui_print "- Unified Guard configuration: $CONFIG"
 ui_print "- Default managed package: com.google.android.gms"
-ui_print "- No LSPosed dependency; no equivalent system broadcast Hook"
+ui_print "- Integrated E3N FCM Live bridge APK: bridge/"
+ui_print "- Full hook coverage requires LSPosed scopes: system + com.miui.powerkeeper"
+ui_print "- Existing verified bridge is reused; no APK or LSPosed database is overwritten"
 ui_print "- Do not run together with the original Millet Guard"
 ui_print "- Original modules remain installed and untouched"
 ui_print "- Setting Unified Guard script permissions"
@@ -36,3 +38,10 @@ set_perm "$MODPATH/bin/fcm_guard.sh" 0 0 0755
 set_perm "$MODPATH/bin/fcm_event_worker.sh" 0 0 0755
 set_perm "$MODPATH/bin/lib.sh" 0 0 0644
 set_perm "$MODPATH/bin/deviceidle_policy.sh" 0 0 0755
+set_perm "$MODPATH/bin/maintenance_worker.sh" 0 0 0755
+set_perm "$MODPATH/bin/unified_event_worker.sh" 0 0 0755
+set_perm "$MODPATH/bin/runtime_workers.sh" 0 0 0755
+set_perm "$MODPATH/bin/bridge_status.sh" 0 0 0755
+set_perm "$MODPATH/bin/bridgectl" 0 0 0755
+set_perm "$MODPATH/bin/settings_worker.sh" 0 0 0755
+set_perm "$MODPATH/bin/swipe_unstop_worker.sh" 0 0 0755

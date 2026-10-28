@@ -2,3 +2,10 @@
 .DS_Store
 .idea/
 .vscode/
+dist/
+.build-stage.*/
+tools/__pycache__/
+bridge-source/**/build/
+bridge-source/.gradle/
+bridge-source/local.properties
+validation/private/

@@ -1,51 +1,64 @@
-name: Validate and release unified Magisk module
-
+name: Validate unified core and integrated bridge
 on:
   push:
-    branches: [main]
-    paths:
-      - 'module/**'
-      - 'tests/**'
-      - 'build.sh'
-      - '.github/workflows/release.yml'
+    branches: [main, 'codex/**']
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
-
 permissions:
-  contents: write
-
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate shell scripts and policy boundaries
+      - name: Validate scripts and behavior
         shell: bash
         run: |
           set -euo pipefail
-          for file in module/*.sh module/bin/*.sh; do sh -n "$file"; done
-          sh tests/test_reconcile_lock.sh
-          sh tests/test_fcm_guard_policy.sh
-          sh tests/test_scope_boundaries.sh
-          sh tests/test_unified_policy.sh
-          grep -q '^id=fcm_unified_guard$' module/module.prop
-          grep -q '^version=0.1.1$' module/module.prop
-      - name: Build Magisk ZIP
+          for file in module/*.sh module/bin/*.sh module/bin/bridgectl; do sh -n "$file"; done
+          for file in tests/test_reconcile_lock.sh tests/test_fcm_guard_policy.sh tests/test_scope_boundaries.sh tests/test_unified_policy.sh tests/test_fcm_runtime.sh tests/test_worker_identity.sh tests/test_migration_safety.sh tests/test_settings_fail_closed.sh; do sh "$file"; done
+      - name: Build and verify distribution
         shell: bash
         run: |
           bash build.sh
-          bash tests/test_release_line_endings.sh dist/HyperOS-FCM-Unified-Guard-v0.1.1.zip
+          bash tests/test_release_line_endings.sh dist/HyperOS-FCM-Unified-Guard-v0.2.0.zip
           cd dist
-          sha256sum HyperOS-FCM-Unified-Guard-v0.1.1.zip > SHA256SUMS.txt
-      - name: Publish experimental release
+          sha256sum *.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HyperOS-FCM-Unified-Guard-v0.2.0
+          path: dist/*
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: HyperOS-FCM-Unified-Guard-v0.2.0
+          path: dist
+      - name: Verify matching release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version=//p' module/module.prop)
+          test "$GITHUB_REF_NAME" = "v$version"
+          cd dist
+          sha256sum -c SHA256SUMS.txt
+      - name: Publish experimental build
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v0.1.1 >/dev/null 2>&1; then
-            echo "v0.1.1 exists; skip publishing unchanged release"
-            exit 0
-          fi
-          gh release create v0.1.1 dist/HyperOS-FCM-Unified-Guard-v0.1.1.zip dist/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.1.1 (实验版)" \
-            --notes "Magisk-only experimental consolidation of Millet Guard with optional native DeviceIdle handling. No LSPosed/PowerKeeper/Greeze Java Hook replacement; do not run together with the original Millet Guard." --prerelease
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
+          gh release create "$GITHUB_REF_NAME" \
+            dist/HyperOS-FCM-Unified-Guard-v0.2.0.zip dist/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.2.0 (实验版)" \
+            --notes "统一 Magisk 守护核心与 GPL-3.0 E3N FCM Live 桥接。LSPosed 仍是完整广播 Hook 的必要依赖；复用已验证的桥接 APK。优化事件处理、健康检查和进程管理。不承诺未经对照测试的电池续航提升。禁用旧 Millet Guard 后再启用本模块。" \
+            --prerelease
