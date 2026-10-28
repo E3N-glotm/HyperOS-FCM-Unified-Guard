@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">HyperOS FCM Live · E3N OS4</string>
+    <string name="xposed_description">Remove HyperOS\'s restrictions on FCM connection-related broadcasts. System power consumption may increase when this module is enabled.</string>
+</resources>

@@ -21,8 +21,8 @@ if grep -qE 'am start|monkey|setPackageStoppedState|force-stop' "$SWIPE_WORKER";
   fail "SwipeUpClean worker must not relaunch apps, force-stop them, or use hidden binder transactions"
 fi
 
-grep -q "swipe_unstop_worker.sh" "$SERVICE" || fail "service does not launch SwipeUpClean worker"
-grep -q "swipe_unstop.pid" "$SERVICE" || fail "service does not track SwipeUpClean worker"
+grep -q 'unified_event_worker.sh' "$SERVICE" || fail "service does not launch shared event stream"
+grep -q 'swipe_unstop_worker.sh.*--handle-line' "$ROOT/module/bin/unified_event_worker.sh" || fail "shared stream lost SwipeUpClean handler"
 grep -q "reconcile.sh.*ctl-apply" "$CTL" || fail "milletctl apply must invoke reconcile.sh"
 
 grep -q -- "--regex='sourcePkg=com.google.android.gms'" "$FCM_WORKER" \

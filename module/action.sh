@@ -15,12 +15,14 @@ echo '=== FCM Unified Guard diagnostics ==='
 /system/bin/sh "$MODDIR/bin/capability_report.sh" 2>/dev/null || true
 echo 'Native DeviceIdle policy:'
 /system/bin/sh "$MODDIR/bin/deviceidle_policy.sh" status 2>/dev/null || true
+echo 'Integrated bridge:'
+/system/bin/sh "$MODDIR/bin/bridge_status.sh" 2>/dev/null || true
 echo 'Startup status:'
 cat "$RUNDIR/startup-status.txt" 2>/dev/null || true
 echo 'Watchers:'
 for f in "$RUNDIR/inotifyd.pid" "$RUNDIR/safety.pid" \
          "$RUNDIR/fcm.pid" "$RUNDIR/fcm_event.pid" \
-         "$RUNDIR/swipe_unstop.pid"; do
+         "$RUNDIR/swipe_unstop.pid" "$RUNDIR/maintenance.pid" "$RUNDIR/events.pid" "$RUNDIR/settings.pid"; do
   [ -f "$f" ] && echo "$(basename "$f"): $(cat "$f")"
 done
 echo 'Recent log:'

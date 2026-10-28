@@ -158,5 +158,10 @@ if grep -Fxq 'com.google.android.gms' "$TMPDES"; then
     [ -n "$sspid" ] && echo "$sspid" > "$RUNDIR/system_server.pid"
     echo "$now" > "$RUNDIR/limiter_check.epoch"
   fi
-  /system/bin/sh "$MODDIR/bin/fcm_guard.sh" "$1" >/dev/null 2>&1 || true
+  # Dedicated timer and GMS event stream already own FCM health. Settings
+  # writes must not turn unrelated preferences into repeated binder dumps.
+  case "${1:-}" in
+    boot|action|ctl-apply)
+      /system/bin/sh "$MODDIR/bin/fcm_guard.sh" "$1" >/dev/null 2>&1 || true;;
+  esac
 fi

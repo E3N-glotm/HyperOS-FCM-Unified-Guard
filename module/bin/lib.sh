@@ -1,5 +1,5 @@
 #!/system/bin/sh
-RUNDIR=/data/adb/fcm_unified_guard
+RUNDIR=${FCM_UNIFIED_RUNTIME:-/data/adb/fcm_unified_guard}
 BB=/data/adb/magisk/busybox
 [ -x "$BB" ] || BB=/system/xbin/busybox
 [ -x "$BB" ] || BB=busybox
