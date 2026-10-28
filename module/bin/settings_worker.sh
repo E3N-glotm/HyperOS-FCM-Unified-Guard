@@ -7,6 +7,7 @@ BB=/data/adb/magisk/busybox
 FIFO=$RUNDIR/settings.$$.fifo
 watcher=
 retry_sleep=
+last_reconcile=0
 cleanup_settings() {
   [ -z "$watcher" ] || kill "$watcher" 2>/dev/null || true
   [ -z "$retry_sleep" ] || kill "$retry_sleep" 2>/dev/null || true
@@ -23,6 +24,12 @@ while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
   while read -r events watched sub; do
     case "$watched:$sub" in
       /data/system/users/0:settings_system.xml|/data/system/users/0:settings_system.xml.*|/data/system/users/0:)
+        # One SettingsProvider update produces multiple create/write/move
+        # events. Coalesce within 5s; the 300s safety sweep is unchanged.
+        read -r boot_time unused < /proc/uptime
+        now=${boot_time%%.*}
+        [ "$now" -ge "$((last_reconcile+5))" ] || continue
+        last_reconcile=$now
         /system/bin/sh "$MODDIR/bin/reconcile.sh" "inotify:$events:$sub" >/dev/null 2>&1 || true;;
       "$RUNDIR":packages.list)
         /system/bin/sh "$MODDIR/bin/reconcile.sh" config-event >/dev/null 2>&1 || true;;

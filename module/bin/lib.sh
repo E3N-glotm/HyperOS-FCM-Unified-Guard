@@ -29,9 +29,20 @@ owned_list() {
   done
 }
 setting_list() {
-  cur=$(settings --user 0 get system MILLET_NO_RESTRICT_APP 2>/dev/null)
+  # Some HyperOS SettingsProvider failures print a Binder error on stdout
+  # with exit code 0. Never turn that text into an app package or write it
+  # back as a CSV value.
+  cur=$(settings --user 0 get system MILLET_NO_RESTRICT_APP 2>&1) || return 1
+  case "$cur" in
+    'cmd: '*|*'Failed transaction'*|*'Failure calling service settings'*|*'Exception'*)
+      return 1 ;;
+  esac
   [ "$cur" = "null" ] && cur=""
-  printf '%s' "$cur" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' | awk '!seen[$0]++'
+  parsed=$(printf '%s' "$cur" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' | awk '!seen[$0]++')
+  if [ -n "$parsed" ] && printf '%s\n' "$parsed" | grep -Ev '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+$' >/dev/null; then
+    return 1
+  fi
+  [ -z "$parsed" ] || printf '%s\n' "$parsed"
 }
 join_csv() {
   awk 'NF { if (out!="") out=out ", "; out=out $0 } END { print out }'
