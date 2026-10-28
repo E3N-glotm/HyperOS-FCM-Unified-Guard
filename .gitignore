@@ -1,3 +1,5 @@
+static-patch/build/
+static-patch/device-fixtures/
 *.zip
 .DS_Store
 .idea/
