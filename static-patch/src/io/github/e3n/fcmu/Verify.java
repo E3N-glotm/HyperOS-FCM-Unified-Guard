@@ -12,7 +12,17 @@ public final class Verify {
   Class<?> pem=Class.forName("android.os.PowerExemptionManager",false,Verify.class.getClassLoader());
   pem.getDeclaredConstructor(android.content.Context.class);
   pem.getDeclaredMethod("addToTemporaryAllowList",String.class,int.class,String.class,long.class);
+  Class<?> ams=Class.forName("com.android.server.am.ActivityManagerService",false,Verify.class.getClassLoader());
+  ams.getDeclaredMethod("getRecordForAppLOSP",Class.forName("android.app.IApplicationThread"));
+  checkField(ams,"mContext",android.content.Context.class);
+  checkField(Class.forName("com.android.server.am.ProcessRecord",false,Verify.class.getClassLoader()),"info",android.content.pm.ApplicationInfo.class);
+  Class<?> br=Class.forName("com.android.server.am.BroadcastRecord",false,Verify.class.getClassLoader());
+  checkField(br,"callerPackage",String.class);checkField(br,"intent",android.content.Intent.class);
   System.out.println("ART_API PowerExemptionManager signature OK");
+  System.out.println("ART_API caller identity and broadcast fields OK");
+ }
+ static void checkField(Class<?> c,String name,Class<?> type)throws Exception{
+  if(c.getDeclaredField(name).getType()!=type)throw new NoSuchFieldException(c.getName()+"->"+name+" type mismatch");
  }
  static void checkZip(String path)throws Exception{
   java.io.RandomAccessFile f=new java.io.RandomAccessFile(path,"r");int dexes=0;

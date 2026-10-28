@@ -1,6 +1,6 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
-. "$MODDIR/profile.conf"
+. "$MODDIR/bin/static_common.sh"
 STATUS="$MODDIR/static-status.txt"
 PENDING="$MODDIR/static-boot-pending"
 fail() {
@@ -9,25 +9,25 @@ fail() {
   rm -f "$PENDING"
   exit 0
 }
-hash_file() { sha256sum "$1" | cut -d ' ' -f 1; }
+[ -r "$MODDIR/profile.conf" ] || fail "installation profile missing"
+. "$MODDIR/profile.conf"
+profile_valid || fail "installation profile invalid; reinstall for capability detection"
 [ ! -e "$PENDING" ] || fail "previous boot was not acknowledged; automatic rollback"
 if [ -d /data/adb/modules/gms_millet_guard ] &&
    [ ! -e /data/adb/modules/gms_millet_guard/disable ] &&
    [ ! -e /data/adb/modules/gms_millet_guard/remove ]; then
   fail "legacy Millet Guard is enabled"
 fi
-[ "$(getprop ro.product.device)" = "$TARGET_DEVICE" ] || fail "device changed"
-[ "$(getprop ro.build.version.sdk)" = "$TARGET_SDK" ] || fail "SDK changed"
-[ "$(getprop ro.build.version.incremental)" = "$TARGET_BUILD" ] || fail "ROM updated; rebuild required"
-[ "$(hash_file /system/framework/services.jar)" = "$SOURCE_SERVICES_SHA256" ] || fail "stock services hash changed"
-[ "$(hash_file /system_ext/framework/miui-services.jar)" = "$SOURCE_MIUI_SHA256" ] || fail "stock miui-services hash changed"
+[ "$(current_rom_identity)" = "$INSTALLED_ROM_SHA256" ] || fail "ROM identity changed since installation; re-detect before use"
+[ "$(hash_file "$SOURCE_SERVICES_PATH")" = "$SOURCE_SERVICES_SHA256" ] || fail "source services hash changed"
+[ "$(hash_file "$SOURCE_MIUI_PATH")" = "$SOURCE_MIUI_SHA256" ] || fail "source OEM framework hash changed"
 [ "$(hash_file "$MODDIR/patched/services.jar")" = "$PATCHED_SERVICES_SHA256" ] || fail "corrupt generated services"
 [ "$(hash_file "$MODDIR/patched/miui-services.jar")" = "$PATCHED_MIUI_SHA256" ] || fail "corrupt generated miui-services"
 : > "$PENDING"
-mount -o bind "$MODDIR/patched/services.jar" /system/framework/services.jar ||
+mount -o bind "$MODDIR/patched/services.jar" "$SOURCE_SERVICES_PATH" ||
   fail "services bind failed"
-if ! mount -o bind "$MODDIR/patched/miui-services.jar" /system_ext/framework/miui-services.jar; then
-  umount /system/framework/services.jar
+if ! mount -o bind "$MODDIR/patched/miui-services.jar" "$SOURCE_MIUI_PATH"; then
+  umount "$SOURCE_SERVICES_PATH"
   fail "miui-services bind failed; first mount reverted"
 fi
 printf '%s\n' "MOUNTED: static policy; awaiting Android boot completion" > "$STATUS"

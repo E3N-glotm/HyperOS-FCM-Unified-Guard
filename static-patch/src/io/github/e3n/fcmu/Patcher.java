@@ -17,6 +17,43 @@ public final class Patcher {
  static final String P="Lio/github/e3n/fcmu/StaticPolicy;";
  static final String O="Ljava/lang/Object;",S="Ljava/lang/String;";
  static Map<String,Integer> counts=new TreeMap<String,Integer>();
+ static final String[] SYSTEM_CLASSES={"Lcom/android/server/am/ActivityManagerService;","Lcom/android/server/am/ProcessRecord;","Lcom/android/server/am/BroadcastRecord;"};
+ static final String[] OEM_CLASSES={"Lcom/miui/server/greeze/GreezeManagerService;","Lcom/miui/server/greeze/DomesticPolicyManager;","Lcom/android/server/am/BroadcastQueueModernStubImpl;","Lcom/android/server/am/ProcessPolicy;","Lcom/miui/server/greeze/power/ListAppsManager;","Lcom/miui/server/greeze/power/AwareResourceControl;"};
+ static String[] requiredMethods(boolean system){return system?new String[]{"ams.broadcast"}:new String[]{"greeze.allow","greeze.defer","greeze.limit","domestic.defer","broadcast.autostart","lists.constructor","lists.whitelist","network.constructor","process.whitelist"};}
+ static void requireTargets(boolean system){
+  for(String key:requiredMethods(system)){
+   int n=counts.containsKey(key)?counts.get(key):0;
+   if(n<1||(!key.endsWith("constructor")&&n!=1))throw new IllegalStateException("Missing/ambiguous required capability "+key+" count="+n);
+  }
+ }
+ static void instanceMethod(Method m){
+  if((m.getAccessFlags()&8)!=0)throw new IllegalStateException("Expected instance method: "+m.getDefiningClass()+"->"+m.getName()+sig(m));
+ }
+ static void probeJar(File source,boolean system)throws Exception{
+  Set<String> required=new HashSet<String>(Arrays.asList(system?SYSTEM_CLASSES:OEM_CLASSES));
+  Set<String> seen=new HashSet<String>();
+  MultiDexContainer<?> con=DexFileFactory.loadDexContainer(source,Opcodes.getDefault());
+  if(con.getDexEntryNames().isEmpty())throw new IllegalStateException("Framework has no usable DEX: "+source);
+  for(String entry:con.getDexEntryNames())for(ClassDef c:con.getEntry(entry).getDexFile().getClasses()){
+   if(c.getType().equals(P))throw new IllegalStateException("Source already patched; disable the old static module and reboot before reinstalling");
+   if(required.contains(c.getType())){
+    if(!seen.add(c.getType()))throw new IllegalStateException("Duplicate framework class: "+c.getType());
+    validateClass(c);
+   }
+   for(Method m:c.getMethods())rewrite(m);
+  }
+  required.removeAll(seen);
+  if(!required.isEmpty())throw new IllegalStateException("Missing required classes: "+required);
+  requireTargets(system);
+ }
+ static void preflight(File services,File oem)throws Exception{
+  counts.clear();
+  try{
+   probeJar(services,true);probeJar(oem,false);
+   for(Map.Entry<String,Integer> e:counts.entrySet())System.out.println("CAPABILITY "+e.getKey()+"="+e.getValue());
+   System.out.println("CAPABILITY_OK: framework contract matched; no device or OS-build allowlist");
+  }finally{counts.clear();}
+ }
  static void requireField(ClassDef c,String name,String type){
   for(Field f:c.getFields())if(f.getName().equals(name)&&f.getType().equals(type))return;
   throw new IllegalStateException("Required field missing: "+c.getType()+"->"+name+":"+type);
@@ -48,6 +85,7 @@ public final class Patcher {
  static ImmutableMethodReference ref(String name,String ret,String...args){return new ImmutableMethodReference(P,name,Arrays.asList(args),ret);}
  static void insertCall(MutableMethodImplementation x,int index,int first,int n,ImmutableMethodReference ref){x.addInstruction(index,new BuilderInstruction3rc(Opcode.INVOKE_STATIC_RANGE,first,n,ref));}
  static Method prefix(Method m,String key,ImmutableMethodReference helper,int n,boolean conditional,boolean result){
+  instanceMethod(m);
   MutableMethodImplementation x=new MutableMethodImplementation(m.getImplementation());
   int first=x.getRegisterCount()-params(m);
   if(conditional&&first<1)throw new IllegalStateException("No local scratch register: "+key);
@@ -83,6 +121,7 @@ public final class Patcher {
    if(n.equals("deferBroadcastForMiui")&&s.equals("(Ljava/lang/String;)Z"))
     return prefix(m,"greeze.defer",ref("skipGreezeDefer","Z",O,S),2,true,false);
    if(n.equals("triggerGMSLimitAction")&&s.equals("()V")){
+    instanceMethod(m);
     MutableMethodImplementation x=new MutableMethodImplementation(m.getImplementation());
     int first=x.getRegisterCount()-1;if(first<1||first>15)throw new IllegalStateException("Unsupported limiter frame");
     x.addInstruction(0,new BuilderInstruction11n(Opcode.CONST_4,0,0));
@@ -102,6 +141,7 @@ public final class Patcher {
   if(c.equals("Lcom/miui/server/greeze/power/AwareResourceControl;")&&n.equals("<init>"))
    return constructor(m,"network.constructor","awareConstruct");
   if(c.equals("Lcom/android/server/am/ProcessPolicy;")&&n.equals("getWhiteList")&&s.equals("(I)Ljava/util/List;")){
+   instanceMethod(m);
    MutableMethodImplementation x=new MutableMethodImplementation(m.getImplementation());int flag=x.getRegisterCount()-1;
    if(flag>15)throw new IllegalStateException("Unsupported ProcessPolicy registers");
    for(int i=x.getInstructions().size()-1;i>=0;i--)if(x.getInstructions().get(i).getOpcode()==Opcode.RETURN_OBJECT){
@@ -139,8 +179,7 @@ public final class Patcher {
    }
    if(changed)replaced.put(entry,dexBytes(cls));
   }
-  String[] required=system?new String[]{"ams.broadcast"}:new String[]{"greeze.allow","greeze.defer","greeze.limit","domestic.defer","broadcast.autostart","lists.constructor","lists.whitelist","network.constructor","process.whitelist"};
-  for(String k:required){int n=counts.containsKey(k)?counts.get(k):0;if(n<1||(!k.endsWith("constructor")&&n!=1))throw new IllegalStateException("Missing/ambiguous required patch "+k+" count="+n);}
+  requireTargets(system);
   if(system){
    int next=con.getDexEntryNames().size()+1;String entry="classes"+next+".dex";
    try(ZipFile z=new ZipFile(source)){if(z.getEntry(entry)!=null)throw new IllegalStateException("Helper dex collision");}
@@ -166,11 +205,13 @@ public final class Patcher {
   public void write(byte[] b,int off,int len)throws IOException{out.write(b,off,len);n+=len;}
  }
  public static void main(String[] a)throws Exception{
+  if(a.length==3&&a[0].equals("--probe")){preflight(new File(a[1]),new File(a[2]));return;}
   if(a.length!=4){System.err.println("Usage: Patcher services.jar miui-services.jar policy.dex output-directory");System.exit(2);}
   File out=new File(a[3]);if(!out.isDirectory()&&!out.mkdirs())throw new IOException("Cannot create staging");
   File services=new File(out,"services.jar.part"),miui=new File(out,"miui-services.jar.part");
   if(services.exists()||miui.exists()||new File(out,"services.jar").exists()||new File(out,"miui-services.jar").exists())throw new IOException("Require empty staging directory");
   try{
+   preflight(new File(a[0]),new File(a[1]));
    byte[] helper=read(new FileInputStream(a[2]));
    if(helper.length<112||helper[0]!='d'||helper[1]!='e'||helper[2]!='x')throw new IOException("Invalid policy DEX");
    patch(new File(a[0]),services,helper,true);patch(new File(a[1]),miui,helper,false);

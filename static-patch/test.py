@@ -12,6 +12,7 @@ def main():
  libs=[]
  for prefix in ("smali-dexlib2-","smali-util-","guava-"):libs.append(sorted((sdk/"cmdline-tools").rglob(prefix+"*.jar"))[-1])
  cp=os.pathsep.join(map(str,libs+[ROOT/"build/patcher-classes"]))
- run([javac,"--release","8","-cp",cp,"-d",out,ROOT/"test-patcher/PatcherTest.java"])
+ run([javac,"--release","8","-cp",cp,"-d",out,*list((ROOT/"test-patcher").glob("*.java"))])
  run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.PatcherTest"])
+ run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.CapabilityTest"])
 if __name__=="__main__":main()
