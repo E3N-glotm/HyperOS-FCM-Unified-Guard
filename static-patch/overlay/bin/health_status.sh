@@ -55,11 +55,18 @@ case "$greeze" in
  *true*) emit YELLOW GMS_LIMIT "OEM GMS limiter still enabled";;
  *) emit GRAY GMS_LIMIT "OEM limiter interface absent/unavailable; other functions remain independent";;
 esac
+# Greeze dumpsys and SettingsProvider are independent interfaces.
 whitelist=$(probe5 settings --user 0 get system MILLET_NO_RESTRICT_APP </dev/null 2>/dev/null)
-if [ -n "$greeze" ]; then
-  case ",$whitelist," in *com.google.android.gms*) emit GREEN MILLET "GMS is in the no-restrict setting";;
-    *) emit YELLOW MILLET "GMS no-restrict entry missing or SettingsProvider unavailable";; esac
-else emit GRAY MILLET "OEM freezing interface absent/unavailable"; fi
+case "$whitelist" in
+  ''|null|*'Failed transaction'*|*'Failure calling service settings'*|*'Exception'*)
+    emit GRAY MILLET "no-restrict setting absent/unavailable; Greeze diagnostics independent";;
+  *)
+    if printf '%s\n' "$whitelist" | tr ',' '\n' | grep -Eq '^[[:space:]]*com[.]google[.]android[.]gms[[:space:]]*$'; then
+      emit GREEN MILLET "GMS is in the no-restrict setting"
+    else
+      emit YELLOW MILLET "GMS no-restrict entry not present"
+    fi;;
+esac
 idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
 if printf '%s\n' "$idle" | grep -Eq '^(system|user),com[.]google[.]android[.]gms,'; then
   emit GREEN DEVICEIDLE "native GMS exemption present"
@@ -80,7 +87,8 @@ case "$phase" in
 esac
 [ -n "$capfile" ] || capfile=$MODDIR/backend/last-capabilities.tsv
 ready=0 total=0
-if [ -r "$capfile" ]; then
+framework_label=未知
+if [ -s "$capfile" ]; then
   while IFS="$(printf '\t')" read -r feature state reason; do
     [ -n "$feature" ] || continue
     total=$((total+1))
@@ -92,7 +100,10 @@ if [ -r "$capfile" ]; then
       emit YELLOW "$feature" "cached; current-boot framework validation pending"
     else emit YELLOW "$feature" "$reason"; fi
   done < "$capfile"
-else emit YELLOW FEATURES "static feature report not available; base core remains independent"; fi
+  framework_label="$ready/$total"
+else
+  emit YELLOW FEATURES "feature report missing; check backend/state and backend/build.log; base core independent"
+fi
 case "$level" in
  0) lamp='🟢'; label='运行检查正常';;
  1) lamp='🟡'; label='部分功能/适配中';;
@@ -100,7 +111,7 @@ case "$level" in
 esac
 phase_label=$(backend_phase_label "$phase")
 case "$observed" in connected) fcm_label='在线';; disconnected) fcm_label='断开';; *) fcm_label='未知';; esac
-summary="$lamp $label | FCM$fcm_label | 框架$ready/$total | $phase_label"
+summary="$lamp $label | FCM$fcm_label | 框架$framework_label | $phase_label"
 printf '%s\n' "$summary" > "$RUNDIR/health-summary.txt"
 printf '%s\n' "Checked: $(date '+%Y-%m-%d %H:%M:%S')" >> "$OUT"
 printf '%s\n' 'Green indicates current checks only; it does not prove end-to-end message delivery.' >> "$OUT"

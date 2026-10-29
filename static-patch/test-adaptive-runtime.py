@@ -233,6 +233,29 @@ esac
   self.env["MODE"]="full";self.script("action.sh")
   self.assertEqual(self.state(),"READY");self.assertTrue((self.mod/"backend/current").exists())
 
+
+ def test_no_greeze_dumpsys_still_reports_whitelist(self):
+  self.tool("dumpsys",r"""
+case "$1" in
+ activity) echo 'Is client connected: true';;
+ greezer) :;;
+esac
+""")
+  self.health()
+  report=(self.run/"health-status.txt").read_text()
+  self.assertIn("GREEN\tMILLET",report)
+  self.assertIn("GRAY\tGMS_LIMIT",report)
+
+ def test_missing_feature_report_is_unknown_not_zero_of_zero(self):
+  self.env["MODE"]="generation-fail"
+  self.script("bin/build_backend.sh","retry",ok=False)
+  summary=self.health()
+  self.assertIn("框架未知",summary)
+  self.assertNotIn("框架0/0",summary)
+  report=(self.run/"health-status.txt").read_text()
+  self.assertIn("backend/build.log",report)
+  self.assertIn("RED\tBACKEND",report)
+
 if __name__=="__main__":
  if os.name=="nt":
   print("SKIP native-path simulation on Windows; Linux CI runs all runtime/OTA/status scenarios")
