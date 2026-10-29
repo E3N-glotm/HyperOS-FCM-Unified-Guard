@@ -1,7 +1,7 @@
 name: Validate Magisk-only static candidate
 on:
   push:
-    branches: ['codex/pure-magisk-static-v030']
+    branches: [main, 'codex/pure-magisk-static-v030']
   pull_request:
     paths: ['static-patch/**', '.github/workflows/static-candidate.yml']
   workflow_dispatch:

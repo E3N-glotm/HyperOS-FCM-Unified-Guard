@@ -2,62 +2,80 @@
 
 **简体中文 | [English](README_EN.md)**
 
-本分支最新 [纯 Magisk 候选版 v0.4.0-alpha.1](static-patch/README.md) 支持按功能降级、Magisk 状态灯和系统升级后的自动重建；缺少接口仍可安装，基础核心独立工作，不自动禁用/卸载/重启。真实 OTA 与跨 ROM 验证仍待完成；下文保留 v0.2.0 发布版说明。
+单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.1**，无需 FCM Live APK、LSPosed 或 Zygisk。
 
-v0.2.0 将 Millet Guard 守护核心和经过实机验证的 E3N FCM Live 桥接纳入同一个项目和 Magisk ZIP，目标是保留原组合的作用并减少重复后台工作。**完整功能仍使用 LSPosed；这不是 Magisk-only 版本，也不是新的注入框架。**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.1/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.1/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip.sha256)**
 
-## 功能与边界
+> 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
-| 路径 | v0.2.0 实现 |
-|---|---|
-| Millet/Greeze 免冻结 | 原有按应用名单与所有者感知合并，保留其他应用的系统管理 |
-| FCM 假在线与断联 | 原有 15 分钟主动心跳、DNS 判断、重连闹钟恢复及受限进程恢复 |
-| FCM 广播、自启动与临时豁免 | 集成 E3N FCM Live v1.4.1-e3n-os4 原始 APK，保留已适配的进程内 Hook |
-| PowerKeeper GMS 限制 | 原桥接的接口兼容与原生 limiter 检查 |
-| 最近任务 SwipeUpClean | 仅处理识别事件且在管理名单中的包，清除 stopped 标志，不重新启动应用 |
-| DeviceIdle | 默认 observe，只读；可选 enforce，撤销时仅移除本模块添加的条目 |
+## 功能与兼容性
 
-桥接中的具体 Hook 以 ROM 接口和 LSPosed 运行日志为准。原桥接的 `FLAG_INCLUDE_STOPPED_PACKAGES` 逻辑也随原始二进制保留，不能声称整个方案完全不影响 Force Stop 后的推送语义。
+不写死机型、Android/HyperOS 版本或 ROM 哈希白名单。安装时按实际类、字段、方法及 ART 能力检测，缺少接口仍可安装；不能使用的功能逐项报告，其余功能继续适配。基础守护独立于静态框架后端。
 
-## 本次减少了哪些开销
+| 功能 | 当前行为 |
+| --- | --- |
+| Millet/Greeze 免冻结 | 按应用名单维护，保留其他应用的系统管理 |
+| FCM 连接恢复 | DNS 感知、主动心跳、重连调度与受限进程恢复，不要求必须运行 sing-box |
+| 静态框架策略 | 广播、自启动、临时豁免、GMS 限制及进程/网络名单等十项能力，分别检测、生成和校验 |
+| SwipeUpClean | 处理管理名单中的识别事件，清除 stopped 标志，不主动重新启动应用 |
+| DeviceIdle | 默认 observe；可选 enforce，仅撤销本模块添加的条目 |
+| Magisk 状态 | 名称和描述显示状态灯，点击“操作”查看逐项原因并立即检查、重试适配 |
 
-| 原路径 | 现在 |
-|---|---|
-| 设置目录每个事件都执行 Shell handler | BusyBox 输出事件流，常驻 Shell 先过滤文件名；不为无关事件启动 handler |
-| 设置变更连带执行 FCM 检查 | 白名单维护与健康检查分离；保留开机、手动操作、120 秒和 GMS 原生事件检查 |
-| 两个 logcat 订阅及管道子 Shell | 一个双缓冲区过滤订阅，分别分发 GMS 和 SwipeUpClean |
-| 两个独立定时循环 | 一个按最近截止时间休眠的维护循环，保留 120/300 秒周期 |
-| 每次健康检查两次 GcmService 查询 | 未触发心跳时一次，心跳后仍重新查询并处理暴露的断联 |
-| 仅凭 PID 停止工作进程 | 新进程记录 PID 和 `/proc` 启动时间，拒绝终止身份不匹配的进程 |
+不设机型限制不等于所有 ROM 都有相同接口。非 HyperOS 或缺少 OEM 接口的系统可能只运行部分功能；实际结果以状态报告为准。静态广播策略包含停止包标志处理，不能承诺完全保留原系统的 Force Stop 推送语义。
 
-FCM 恢复在事件处理器内异步执行，避免长时间重连检查阻塞 SwipeUpClean。没有新增 AlarmManager 定时唤醒或 wakelock。上述减少的是操作和进程开销，**不是已测得的整机续航提升比例**。
+## 安装与升级
 
-## 安装与迁移
+1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
+2. 备份 `/data/adb/fcm_unified_guard/`；若从旧 Millet Guard 迁移，同时保留旧名单与所有权记录。升级保留已有 `packages.list` 和 `unified.conf`，仅在首次没有配置时导入旧名单。
+3. 在 Magisk 中安装 ZIP。关闭旧 Millet Guard 的重复守护；若此前启用了 FCM Live/LSPosed 桥接，关闭对应功能，避免与静态策略重复处理。
+4. 将需要管理的应用逐行写入 `/data/adb/fcm_unified_guard/packages.list`，正常重启后查看模块状态；生成的新框架缓存如显示待生效，再于方便时正常重启。
+5. 点击 Magisk“操作”，检查基础核心、FCM、豁免和各项静态功能。
 
-1. 保存旧配置 `/data/adb/millet_guard/packages.list`。安装本 Release 的 ZIP，模块 ID 为 `fcm_unified_guard`。
-2. 完整模式需要 LSPosed，桥接作用域为 `system` 与 `com.miui.powerkeeper`。若已使用 E3N FCM Live v1.4.1-e3n-os4，直接复用，勿重复启用原版。
-3. 首次安装桥接可执行 `su -c 'sh /data/adb/modules/fcm_unified_guard/bin/bridgectl install'`，然后在 LSPosed 启用并重启。安装脚本不会改写 LSPosed 数据库，也不会覆盖现有不同签名 APK。
-4. 将需要管理的应用写入 `/data/adb/fcm_unified_guard/packages.list`。从旧版本迁移时同时备份 `managed.last`；旧模块卸载前必须处理其所有权记录，避免卸载脚本撤回正在使用的名单。
-5. 禁用旧 Millet Guard，启用本模块并重启。两个核心不能同时运行；发生冲突时新核心停止自身工作进程并退出。桥接仍由 LSPosed 独立管理。
+模块 ID 为 `fcm_unified_guard`。不兼容、检测或生成失败不会自动禁用、卸载整个模块，也不会自动重启手机。与旧核心同时运行时会报告冲突并避免重复写入，由用户决定保留哪一个。旧模块卸载可能撤销其管理记录，迁移时应保留备份。
 
-点击 Magisk **操作**，查看 GMS、白名单、DeviceIdle 与桥接状态。桥接检查区分二进制校验和当前 PID 的 Hook 注册日志；没有日志会显示 UNKNOWN，不能把“已安装”当作“已生效”。
+## 状态灯怎么看
 
-## 回退
+| 状态 | 含义 |
+| --- | --- |
+| 🟢 正常 | 当前基础进程、FCM 连接、豁免与已适配框架功能检查通过 |
+| 🟡 部分可用/待生效 | 部分接口缺失、诊断未知、适配中，或新缓存等待下次正常重启 |
+| 🔴 需要查看 | 已观察到断联、工作进程缺失、生成/挂载错误、冲突或补丁启动未确认 |
 
-禁用融合核心、重新启用旧 Millet Guard并重启。E3N 桥接可继续复用，不必重装或重新设置作用域。卸载融合核心不会自动卸载可能早已存在的桥接。停用桥接需要在 LSPosed 中单独操作并重启。
+灰色功能项表示相关 OEM 接口不存在或无法读取。刷新 Magisk 模块列表可查看最近状态；“操作”会立即重新检查。绿灯只说明当前检查通过，不能代替真实消息到达测试；连接异常也可能来自网络或 GMS。
 
-## 验证与已知限制
+## 系统升级后
 
-见 [实机验证记录](docs/VALIDATION.md)。Connected、Hook 注册成功、合成日志测试分别只证明各自路径，不能代替锁屏端到端消息测试。普通优先级消息还受 Android Doze 和发送端策略影响。
+开机快速检查当前缓存；框架内容变化后，先让新系统和基础守护正常启动，再自动检测并重建可用功能。新缓存校验成功后，在**下一次正常重启**加载，无需重装相同 ZIP，也不会自动重启。
 
-严格 A/B 应在相同网络、屏幕、充电与使用条件下比较多小时消息到达率、P50/P95 延迟、断联时长及电池耗电；`tools/device_observe.sh` 仅为模块进程 CPU/RSS 聚合采样，不是整机电量模型。
+OTA 后首次启动可能暂处于基础模式。静态框架代码无法可靠地在已运行的 system_server 中替换，因此不会强行把旧系统 JAR 覆盖到新系统上。已有缓存会保留；生成失败不自动卸载模块，上一轮未确认启动只隔离对应缓存，基础核心继续工作。是否禁用或卸载由用户决定。
 
-## 构建与许可
+哈希由设备动态计算，仅用于缓存身份、完整性与生成竞争检查，不是安装白名单。相同输入的失败在一次开机内不反复编译；输入变化或点击“操作”后可再次检测。详细流程见 [自适应机制](static-patch/README.md)。
 
-执行 `bash build.sh` 生成安装包。构建强制校验桥接 APK 的 SHA-256，并且只对文本执行换行规范化，避免损坏二进制。
+## 耗电与验证边界
 
-- 守护 Shell 继承 [E3N Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard)，保留根目录 MIT `LICENSE`。
-- 桥接为 [Howard20181 原作](https://github.com/Howard20181/HyperOS_FCM_Live) 的 [E3N 兼容分支](https://github.com/E3N-glotm/HyperOS_FCM_Live)，GPL-3.0；完整对应源码、Gradle 构建脚本和 GPL 许可保存在 `bridge-source/`，准确来源见 `module/bridge/PROVENANCE.txt`。
-- 根目录 MIT 许可不覆盖 GPL 桥接。ZIP 是两个独立程序的集成分发。桥接为原发布版 Debug 签名，重新编译可能得到不同证书；不要强制覆盖用户已有安装。
+状态检查复用五分钟维护周期及 FCM 健康缓存，没有为状态灯增加常驻进程、AlarmManager 唤醒或专用唤醒锁。核心合并了日志订阅和维护定时循环，并过滤无关设置事件。系统变化后的框架生成会有一次性 CPU 与 I/O 开销，正常运行不会持续编译。
 
-桥接源码构建：在 JDK 21 与 Android SDK 37 环境进入 `bridge-source`，运行 `bash gradlew :HyperFCMLive:assembleDebug --no-daemon`。打包默认使用固定校验的原始实测 APK，以保留现有设备签名与行为。
+已通过 34 项策略检查、严格字节码契约与按功能降级测试，以及 18 项 Linux 安装/启动/状态/OTA 重建流程测试。当前手机的隔离安装与原厂框架生成得到 10/10 功能，逐项 ART 校验通过；**这不等于新版已完成实际冷启动或真实 OTA 验收**。
+
+端到端消息、跨机型和同条件电池 A/B 尚未完成，不能给出实测省电比例。CPU/RSS 采样也不能直接换算整机耗电。参见 [新版验证记录](static-patch/VALIDATION.md)；旧架构记录在 [docs/VALIDATION.md](docs/VALIDATION.md)。
+
+## 从源码构建
+
+需要 Python、JDK 17 和包含 Android 36 平台及 Build Tools 36.0.0 的本地 Android SDK：
+
+~~~sh
+python static-patch/build.py --sdk /path/to/android-sdk --jdk /path/to/jdk
+python static-patch/test.py --sdk /path/to/android-sdk --jdk /path/to/jdk
+python static-patch/test-adaptive-runtime.py
+python static-patch/package.py
+~~~
+
+安装包与校验文件输出到 `dist/`。包内不含 APK、LSPosed/Zygisk 桥接或预制厂商 JAR；厂商框架缓存只在设备本地生成。新版构建检查覆盖 `main` 和开发分支。
+
+仓库保留了旧版集成桥接的 `module/`、`bridge-source/` 与根目录 `build.sh`；**根目录 `bash build.sh` 构建的是旧 v0.2.0 包**。旧版安装说明请查看 [v0.2.0 文档](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/blob/v0.2.0/README.md)，不要与新版步骤混用。
+
+## 来源与许可
+
+- 基础守护源于 [E3N Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard)，保留根目录 [MIT 许可](LICENSE)。
+- 静态策略源于 [Howard20181 / HyperOS_FCM_Live](https://github.com/Howard20181/HyperOS_FCM_Live) 及 [E3N 兼容分支](https://github.com/E3N-glotm/HyperOS_FCM_Live)，采用 GPL-3.0-only；对应源码及 [GPL 许可](bridge-source/LICENSE) 保留在 `bridge-source/`，新版实现位于 `static-patch/`。
+- 根目录 MIT 不覆盖 GPL 部分。安装包附带两份许可证；原桥接来源可查 [PROVENANCE.txt](module/bridge/PROVENANCE.txt)。
