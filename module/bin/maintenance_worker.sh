@@ -14,6 +14,7 @@ while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
   now=$(uptime_seconds)
   if [ "$now" -ge "$next_policy" ]; then
     /system/bin/sh "$MODDIR/bin/reconcile.sh" safety
+    [ ! -f "$MODDIR/bin/health_status.sh" ] || /system/bin/sh "$MODDIR/bin/health_status.sh" --cached </dev/null >/dev/null 2>&1
     next_policy=$(( $(uptime_seconds)+300 ))
   fi
   if [ "$now" -ge "$next_fcm" ]; then

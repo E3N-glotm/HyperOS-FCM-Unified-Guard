@@ -30,9 +30,11 @@ while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
         now=${boot_time%%.*}
         [ "$now" -ge "$((last_reconcile+5))" ] || continue
         last_reconcile=$now
-        /system/bin/sh "$MODDIR/bin/reconcile.sh" "inotify:$events:$sub" >/dev/null 2>&1 || true;;
+        # cmd forwards stdin over Binder. system_server cannot read our
+        # adb_data_file FIFO under SELinux; give child commands /dev/null.
+        /system/bin/sh "$MODDIR/bin/reconcile.sh" "inotify:$events:$sub" </dev/null >/dev/null 2>&1 || true;;
       "$RUNDIR":packages.list)
-        /system/bin/sh "$MODDIR/bin/reconcile.sh" config-event >/dev/null 2>&1 || true;;
+        /system/bin/sh "$MODDIR/bin/reconcile.sh" config-event </dev/null >/dev/null 2>&1 || true;;
     esac
   done < "$FIFO"
   wait "$watcher" 2>/dev/null || true

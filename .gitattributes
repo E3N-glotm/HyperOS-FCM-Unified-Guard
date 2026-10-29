@@ -1,3 +1,5 @@
+static-patch/** text eol=lf
+.github/workflows/static-candidate.yml text eol=lf
 *.sh text eol=lf
 module/bin/* text eol=lf
 module/module.prop text eol=lf
