@@ -4,7 +4,7 @@ import hashlib, pathlib, zipfile
 ROOT=pathlib.Path(__file__).resolve().parent
 repo=ROOT.parent
 out=repo/"dist";out.mkdir(exist_ok=True)
-version=next(line.split("=",1)[1] for line in (ROOT/"overlay/module.prop").read_text().splitlines() if line.startswith("version="))
+version=next(line.split("=",1)[1] for line in (ROOT/"overlay/module.prop").read_text(encoding="utf-8").splitlines() if line.startswith("version="))
 target=out/f"HyperOS-FCM-Unified-Guard-v{version}-static.zip"
 files={}
 for p in (repo/"module").rglob("*"):
@@ -14,7 +14,7 @@ for p in (repo/"module").rglob("*"):
  data=p.read_bytes()
  if rel=="service.sh":
   text=data.decode().replace('/system/bin/sh "$MODDIR/bin/bridge_status.sh" > "$RUNDIR/bridge-status.txt" 2>&1 || true\n',"")
-  text=text.replace("ACTIVE: unified core; bridge registration tracked separately in bridge-status.txt","ACTIVE: unified core + static framework backend")
+  text=text.replace("ACTIVE: unified core; bridge registration tracked separately in bridge-status.txt","ACTIVE: adaptive guard core (framework state tracked separately)")
   files["core-service.sh"]=text.encode()
   continue
  files[rel]=data

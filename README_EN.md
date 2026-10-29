@@ -1,6 +1,6 @@
 # HyperOS FCM Unified Guard
 
-This branch also provides the [Magisk-only v0.3.0-alpha.3 candidate](static-patch/README.md). It detects framework capabilities instead of checking a model/OS-build allowlist and generates a local policy without a separate APK or LSPosed. Cross-ROM runtime validation remains pending. The text below describes the published v0.2.0 architecture.
+This branch provides the [Magisk-only v0.4.0-alpha.1 candidate](static-patch/README.md): permissive installation, independent base workers, per-feature degradation, Magisk health indicators and automatic OTA rebuilds. It never automatically disables/uninstalls the module or reboots the phone. Changed frameworks are rebuilt after Android starts and loaded on the next normal reboot without reinstalling the ZIP. Real OTA and cross-ROM validation remain pending. The text below describes the published v0.2.0 architecture.
 
 v0.2.0 integrates the Millet Guard core and the verified E3N FCM Live bridge in one repository and Magisk ZIP. **Full functionality requires LSPosed** with `system` and `com.miui.powerkeeper` scopes. The existing verified bridge is reused, not loaded twice.
 

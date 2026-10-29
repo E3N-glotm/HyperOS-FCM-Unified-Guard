@@ -17,6 +17,8 @@ public final class Patcher {
  static final String P="Lio/github/e3n/fcmu/StaticPolicy;";
  static final String O="Ljava/lang/Object;",S="Ljava/lang/String;";
  static Map<String,Integer> counts=new TreeMap<String,Integer>();
+ static Set<String> adaptiveMethods=null;
+ static String methodId(Method m){return m.getDefiningClass()+"->"+m.getName()+sig(m);}
  static final String[] SYSTEM_CLASSES={"Lcom/android/server/am/ActivityManagerService;","Lcom/android/server/am/ProcessRecord;","Lcom/android/server/am/BroadcastRecord;"};
  static final String[] OEM_CLASSES={"Lcom/miui/server/greeze/GreezeManagerService;","Lcom/miui/server/greeze/DomesticPolicyManager;","Lcom/android/server/am/BroadcastQueueModernStubImpl;","Lcom/android/server/am/ProcessPolicy;","Lcom/miui/server/greeze/power/ListAppsManager;","Lcom/miui/server/greeze/power/AwareResourceControl;"};
  static String[] requiredMethods(boolean system){return system?new String[]{"ams.broadcast"}:new String[]{"greeze.allow","greeze.defer","greeze.limit","domestic.defer","broadcast.autostart","lists.constructor","lists.whitelist","network.constructor","process.whitelist"};}
@@ -114,6 +116,7 @@ public final class Patcher {
  }
  static Method rewrite(Method m){
   if(m.getImplementation()==null)return m;
+  if(adaptiveMethods!=null&&!adaptiveMethods.contains(methodId(m)))return m;
   String c=m.getDefiningClass(),n=m.getName(),s=sig(m);
   if(c.equals("Lcom/miui/server/greeze/GreezeManagerService;")){
    if(n.equals("isAllowBroadcast")&&s.equals("(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z"))
@@ -171,7 +174,7 @@ public final class Patcher {
   for(String entry:con.getDexEntryNames()){
    DexFile d=con.getEntry(entry).getDexFile();List<ClassDef> cls=new ArrayList<ClassDef>();boolean changed=false;
    for(ClassDef c:d.getClasses()){
-    validateClass(c);
+    if(adaptiveMethods==null)validateClass(c);
     if(c.getType().equals(P))throw new IllegalStateException("Source already patched");
     List<Method> methods=new ArrayList<Method>();boolean cc=false;
     for(Method m:c.getMethods()){Method r=rewrite(m);methods.add(r);if(r!=m)cc=true;}
@@ -179,7 +182,7 @@ public final class Patcher {
    }
    if(changed)replaced.put(entry,dexBytes(cls));
   }
-  requireTargets(system);
+  if(adaptiveMethods==null)requireTargets(system);
   if(system){
    int next=con.getDexEntryNames().size()+1;String entry="classes"+next+".dex";
    try(ZipFile z=new ZipFile(source)){if(z.getEntry(entry)!=null)throw new IllegalStateException("Helper dex collision");}

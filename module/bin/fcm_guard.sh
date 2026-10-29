@@ -162,10 +162,12 @@ fcm_state() {
   line=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
     | grep -m1 'Is client connected:' || true)
   case "$line" in
-    *true*)  echo connected ;;
-    *false*) echo disconnected ;;
-    *)       echo unknown ;;
+    *true*)  observed_state=connected ;;
+    *false*) observed_state=disconnected ;;
+    *)       observed_state=unknown ;;
   esac
+  printf '%s %s\n' "$observed_state" "${now:-0}" > "$RUNDIR/fcm-observed.state"
+  echo "$observed_state"
 }
 
 connected_keepalive() {
@@ -453,8 +455,7 @@ esac
 # com.google.android.gms.persistent process.
 gpid=$(pidof com.google.android.gms.persistent 2>/dev/null | awk '{print $1}')
 [ -n "$gpid" ] || gpid=$(pidof com.google.android.gms 2>/dev/null | awk '{print $1}')
-spid=$(pidof sing-box 2>/dev/null | awk '{print $1}')
-[ -n "$gpid" ] && [ -n "$spid" ] || exit 0
+[ -n "$gpid" ] || exit 0
 
 if [ ! -f "$DOWN_FILE" ]; then
   echo "$now" > "$DOWN_FILE"

@@ -1,61 +1,61 @@
-# 纯 Magisk 静态补丁候选版 v0.3.0-alpha.3
+# HyperOS FCM Unified Guard v0.4.0-alpha.1
 
-这是与 v0.2.0 并列的实验构建路径，目标是仅安装一个 Magisk ZIP，即可卸载旧 Millet Guard 和 E3N FCM Live，且不依赖 LSPosed、Zygisk 或另外安装的 APK。当前没有替换主分支的 v0.2.0 发布包。
+单个 Magisk 模块，保留 Millet/FCM 基础守护，并按当前框架可用能力生成静态策略；无需 FCM Live APK、LSPosed 或 Zygisk。
 
-## 实现范围
+## 安装与兼容行为
 
-| 原有作用 | 静态候选版实现 |
+不设置机型、Android/HyperOS 版本或预置 ROM 哈希白名单。只要 Magisk 能写入模块和配置目录，缺少 ART、OEM JAR 或个别方法不会阻止安装。可用的功能继续工作，缺失功能明确列入状态报告，不把“已安装”当成完整功能已经生效。
+
+基础守护与框架后端独立启动。缺少静态策略、检测失败、生成失败或上一轮补丁启动未确认时，模块仍保留安装和启用状态；脚本不创建 disable/remove，不自动卸载或重启。与旧 Millet Guard 同时启用时，基础核心仍会拒绝重复写入，状态标红并说明冲突，由用户决定关闭哪一个。
+
+## Magisk 状态灯
+
+模块名称和描述显示状态；刷新 Magisk 模块列表可查看最近结果。点击“操作”会立即检查并重试适配，展开逐项原因与最近生成日志。
+
+| 指示 | 含义 |
 | --- | --- |
-| Millet 白名单、GMS 额外限制处理、DNS/心跳/重连、SwipeUpClean | 复用已经优化过的统一守护核心 |
-| Greeze 放行 GMS 发出的 FCM RECEIVE | 在原判断前增加相同的 GMS 来源与 action 条件 |
-| GMS 心跳、连接事件和重连广播不延迟 | 精确修改 Greeze / DomesticPolicyManager 对应判断 |
-| FCM 接收应用的自启动判断 | 仅 GMS + C2DM RECEIVE 走放行，其他广播保留原逻辑 |
-| ProcessPolicy、数据/网络名单 | 保留 GMS 和 persistent 进程的对应豁免 |
-| AMS 广播的短时后台唤醒与 stopped 标志处理 | 保留旧 FCM Live 的来源核验、INCLUDE_STOPPED_PACKAGES 和 2000ms 临时豁免 |
-| PowerKeeper 的 GMS 限制 Hook | 在它最终调用的系统端限制动作上保持 mGmsLimitEnabled=false；PowerKeeper APK 不改签名 |
-| PowerKeeper GMS Doze 名单 Hook | 使用 Android 原生持久 DeviceIdle 用户豁免，保留已有豁免的所有权 |
+| 🟢 | 当前基础工作进程、FCM 连接、豁免与已适配框架功能检查正常 |
+| 🟡 | 部分接口未适配、诊断未知、正在生成或新补丁等待下次正常重启 |
+| 🔴 | 已观察到连接断开、工作进程缺失、生成/挂载错误或补丁启动未确认 |
 
-PowerKeeper 内部上报的网络状态值不要求与旧 Hook 完全相同；候选版接替的是它通过 Greeze 施加限制的实际效果。该替代是否在长时间运行中等效，仍需实测。
+报告包含 CORE、FCM、Millet、GMS 限制、DeviceIdle，以及广播、自启动、进程/网络名单等十项静态功能。灰色项表示相关 OEM 接口不存在或无法读取。绿灯只表示当前检查通过，不能证明真实消息零延迟或百分百到达；连接红灯也可能由网络或 GMS 本身引起。
 
-## 构建与兼容性
+状态检查复用原来的五分钟维护周期，FCM 状态复用健康检查缓存；点击操作时立即重新读取。不增加常驻守护进程、AlarmManager 唤醒或专用唤醒锁。
 
-alpha.3 取消机型、Android API 数字、ROM 版本号和预置原厂哈希白名单。安装器会查找可用 ART 虚拟机，从系统类路径及 system/system_ext/product 的标准框架目录发现 OEM JAR，再检查当前框架的必需类、字段类型、十项目标方法签名、实例方法形式和可用寄存器。全部命中且无歧义后，才根据本机文件生成补丁，并完成 DEX、ZIP 和 ART 检查。
+## 系统升级自动适配
 
-这意味着接口相同的不同机型或系统构建无需逐个加入名单，并不代表任意 ROM 都有这些接口。目前后端仍针对 Greeze、DomesticPolicyManager、PowerKeeper 最终限制路径等 OEM 实现；缺失或改变相关实现时明确拒绝完整模式，不静默降级。相同方法签名也不能证明内部语义完全相同，其他 ROM 仍需实机消息和启动验证。
+1. 开机快速检查缓存是否对应当前框架内容，无需机型/版本名单。
+2. 当前缓存可用则在 system_server 启动前加载；源文件变化或缓存不可用时，先让新系统正常启动，基础守护持续运行。
+3. Android 启动后自动检测并生成可用功能，对缺失接口或 ART 检查失败的功能逐项降级，其余功能继续生成。
+4. 新缓存验证成功后显示“待下次正常重启生效”，下次正常重启自动加载；不需要重新刷 ZIP，也不自动重启手机。
 
-```sh
+静态 Java 框架代码无法可靠地在已运行的 system_server 中替换，因此 OTA 后的首次启动可能处于黄灯基础模式，框架扩展在后续正常重启加载。不会为了维持“已挂载”而用旧系统 JAR 覆盖新系统。这是当前静态路线的加载时机限制，不能宣传 OTA 首次启动即可完成全部扩展。
+
+哈希均由本机动态计算，仅用于识别缓存、检查文件损坏与生成竞争，不作为安装准入白名单。重建采用新目录和原子指针切换，失败保留上一份缓存；上一轮未确认启动只隔离对应缓存，基础核心继续工作。点击操作可以主动重试，是否保留或卸载整个模块由用户决定。
+
+自动生成不在 Magisk 的限时 post-fs-data 阶段运行；相同输入的失败在一次开机内不反复编译，确认无适配功能的输入会缓存结果，输入变化或用户点击操作后再检测。
+
+## 功能与配置
+
+基础核心保留按应用免冻结维护、GMS 限制处理、DNS 感知、主动心跳、重连调度恢复、受限进程恢复及 SwipeUpClean 处理。Box 端口例外仍按实际链是否存在处理；FCM 恢复不再要求必须运行 sing-box。
+
+静态功能分为十项，单独检测所需类、字段和方法，并逐项 ART 校验：AMS 广播短时豁免/停止包标志、Greeze 广播放行/延迟/GMS 限制、Domestic 延迟、自启动、黑/白名单、网络与进程名单。不同 ROM 内部语义仍可能不同，部分适配不等于已经证明完全等效。
+
+配置在 /data/adb/fcm_unified_guard，升级保留用户 packages.list 和 unified.conf；只在首次没有配置时导入旧模块名单。旧静态候选版的已验证缓存可尽量迁移，不要求先卸载。不要同时运行两个白名单维护核心。
+
+## 构建与验证
+
+~~~sh
 python static-patch/build.py --sdk /path/to/android-sdk --jdk /path/to/jdk
 python static-patch/test.py --sdk /path/to/android-sdk --jdk /path/to/jdk
-bash static-patch/test-boot-guard.sh
-bash static-patch/test-capabilities.sh
-bash static-patch/test-install.sh
+python static-patch/test-adaptive-runtime.py
 python static-patch/package.py
-```
+~~~
 
-构建使用 SDK 自带的 smali-dexlib2、smali-util、Guava 与 d8；不读取系统代理，不在手机运行期间联网下载代码。ZIP 不包含厂商原始/修改后 JAR：安装时在本机生成两个修改后文件，完成 DEX 重解析、ZIP 对齐与 ART 类加载检查后才保留。
+安装包不含 APK、LSPosed/Zygisk 桥接或预制厂商 JAR。动态生成的文件仅在用户设备本地保留。编译只使用本地 SDK/JDK，不使用系统代理。
 
-## 启动与恢复
+已通过 34 项策略检查、严格契约与按功能降级测试，以及 Linux 上安装/启动/状态/OTA 重建等流程测试。当前手机的原厂框架在独立 ART 进程中生成十项功能并逐项验证成功，生成结果与已验证的完整策略哈希一致。离线测试不改动活动挂载；真实 OTA 后的完整冷启动、端到端消息和电池 A/B 尚未验收，详见 VALIDATION.md。
 
-模块使用 skip_mount 和 post-fs-data 中的显式绑定挂载，在 system_server 启动前完成；不直接写系统分区。profile.conf 的文件路径、原文件/生成文件哈希和 ROM 状态摘要均由安装器当场记录，不是源码中的机型或版本名单。每次完整开机核对这份安装记录；OTA 或文件变化时旧补丁停用，重新安装同一 ZIP 即可重新检测并生成，不需要作者添加版本号。重新检测仍可能因接口不兼容而失败。
+## 许可
 
-绑定两份文件时若第二份失败，会撤回第一份挂载。挂载前写入启动待确认标志；正常进入 Android 并完成启动检查后清除。若上次完整启动未确认，下一次完整开机自动停用这个模块。软重启 system_server 不会重新执行此保护，不能因此宣称绝对不会开机异常。
-
-禁用模块并完整重启即可恢复原厂框架；设备上的旧模块配置和 APK 备份应在迁移前保留。安装器本身不卸载旧模块，也不操作 LSPosed 数据库。实际切换验收需要移除/停用旧核心及旧 FCM Live，避免测试结果被旧实现掩盖。
-
-升级静态候选版时，先禁用旧静态后端并完整重启，再安装新 ZIP。安装器发现已经加入本策略的 JAR 会拒绝再次修改，不在正在使用的框架上叠加补丁。安装时源文件或 ROM 状态发生变化也会拒绝接受生成结果。
-
-## 已完成和待完成的验证
-
-alpha.3 已通过 34 项策略边界检查、完整结构合成框架接受和六类不兼容框架拒绝、十种开机保护场景、路径发现/别名/歧义/配置完整性检查，以及完整安装流程的六种模拟场景。Linux 测试覆盖真实符号链接别名；安装流程模拟中的 VM 返回值只验证安装控制流，不冒充真实 ART 检查。
-
-alpha.3 尚未在手机上完成离线生成或冷启动，本轮设备连接不可用；当前设备继续运行已经验收的 alpha.2。下面的首次实机验证属于 alpha.1/alpha.2，不能当作 alpha.3 或跨机型验证。
-
-34 项策略边界检查通过，另有返回分支目标、未知方法保持不变、缺失 OEM 字段拒绝等字节码回归；10 个方法命中，ART 独立进程能够加载全部目标类，临时豁免 API 签名已核对。2026-10-29 首次替换冷启动通过，两份补丁在 system_server 的挂载、内存映射与哈希一致；旧 Millet Guard 已禁用，当前 LSPosed 日志未发现 FCM Live 加载。GCM 在线，主动心跳前后收发流计数均递增且连接次数不变，尚非端到端应用消息验收。
-
-alpha.2 修复首次实机验收发现的事件 FIFO 标准输入继承问题：SELinux 会阻止 system_server 接收 adb_data_file FIFO，导致 settings 等 Binder shell 命令失败。四条事件分发路径显式使用 /dev/null，不放宽 SELinux；手机已热更新两条监听脚本并验证配置事件成功，框架补丁无需重启。新增真实事件循环的四路径回归，旧代码可触发失败。
-
-还未完成数小时锁屏、无微信进程、最近任务清理、Wi-Fi/蜂窝切换、端到端真实推送，以及同条件电池 A/B 测试。因此本版仍为候选版，不能宣传已经等效、更省电或零延迟。此路线的预期收益是取消 FCM 专用 LSPosed 运行依赖和每次方法进入的通用 Hook 框架分发；设备上若还有其他 LSPosed 模块，整机框架开销不会因本模块而全部消失。
-
-## 许可与来源
-
-静态策略源于 Howard20181 的 HyperOS_FCM_Live 与 E3N HyperOS 4 修复分支，相关源码按 GPL-3.0-only 提供，完整许可证见 ../bridge-source/LICENSE；已有统一守护核心保留原 MIT 许可。安装包附带两份许可证。静态修补思路也参考了 biplobsd/fcm_notification_fix，但本目录未直接复制其补丁实现或附加通知功能。
+静态策略源于 Howard20181 的 HyperOS_FCM_Live 与 E3N 修复分支，GPL-3.0-only；已有守护核心保留 MIT。完整 GPL 许可和上游对应源码在 ../bridge-source，安装包附带两份许可证。不能用根目录 MIT 许可覆盖 GPL 部分。

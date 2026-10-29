@@ -1,13 +1,10 @@
 #!/system/bin/sh
 MODDIR=${0%/*}/..
 . "$MODDIR/bin/static_common.sh"
-[ -r "$MODDIR/profile.conf" ] || { echo 'INACTIVE: installation profile missing'; exit 1; }
-. "$MODDIR/profile.conf"
-profile_valid || { echo 'INACTIVE: installation profile invalid'; exit 1; }
-[ -r "$MODDIR/static-status.txt" ] && cat "$MODDIR/static-status.txt"
-[ "$(hash_file "$SOURCE_SERVICES_PATH")" = "$PATCHED_SERVICES_SHA256" ] &&
-[ "$(hash_file "$SOURCE_MIUI_PATH")" = "$PATCHED_MIUI_SHA256" ] || {
-  echo "INACTIVE: generated framework files are not mounted"
-  exit 1
-}
-echo "STATIC_FILES_OK: services + miui-services; no LSPosed/APK bridge required"
+cat "$MODDIR/backend/state" 2>/dev/null || true
+if cache_load && cache_payload_ok && cache_security_ok && cache_mounted; then
+  echo 'STATIC_FILES_OK: adapted cache mounted; consult per-feature runtime health'
+  exit 0
+fi
+echo 'STATIC_NOT_LOADED: base guard remains independent; adaptation/status available in Magisk Action'
+exit 1

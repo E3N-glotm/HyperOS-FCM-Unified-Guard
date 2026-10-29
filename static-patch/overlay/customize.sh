@@ -1,81 +1,66 @@
 #!/system/bin/sh
-# A static ROM patch is generated locally; no Xiaomi framework is distributed.
 RUNDIR=${FCM_UNIFIED_RUNTIME:-/data/adb/fcm_unified_guard}
 . "$MODPATH/bin/static_common.sh"
-VM=$(find_art_vm) || abort "No executable ART VM found"
-SOURCE_SERVICES_PATH=$(readlink -f /system/framework/services.jar) || abort "Missing Android services.jar"
-SOURCE_MIUI_PATH=$(discover_oem_jar) || abort "Required OEM framework missing or ambiguous; full FCM policy cannot be installed"
-framework_path_ok "$SOURCE_SERVICES_PATH" && framework_path_ok "$SOURCE_MIUI_PATH" || abort "Framework paths are outside system partitions"
-SOURCE_SERVICES_SHA256=$(hash_file "$SOURCE_SERVICES_PATH")
-SOURCE_MIUI_SHA256=$(hash_file "$SOURCE_MIUI_PATH")
-INSTALLED_ROM_SHA256=$(current_rom_identity)
-valid_hash "$SOURCE_SERVICES_SHA256" && valid_hash "$SOURCE_MIUI_SHA256" && valid_hash "$INSTALLED_ROM_SHA256" || abort "Cannot identify current framework sources"
-ui_print "- Checking this ROM's classes, fields, method signatures and register frames"
-CLASSPATH="$MODPATH/tools/patcher.jar" "$VM" -Xmx1024m \
-  io.github.e3n.fcmu.Patcher --probe "$SOURCE_SERVICES_PATH" "$SOURCE_MIUI_PATH" \
-  > "$MODPATH/install-report.txt" 2>&1 ||
-  abort "Incompatible or already-patched framework; see install-report.txt. Disable an older static backend and reboot before reinstalling."
-ui_print "- Generating FCM-only framework policy in staging (may take several minutes)"
-mkdir "$MODPATH/.staging" || abort "Staging directory already exists or cannot be created"
-CLASSPATH="$MODPATH/tools/patcher.jar" "$VM" -Xmx1024m \
-  io.github.e3n.fcmu.Patcher "$SOURCE_SERVICES_PATH" "$SOURCE_MIUI_PATH" \
-  "$MODPATH/tools/policy.dex" "$MODPATH/.staging" >> "$MODPATH/install-report.txt" 2>&1 ||
-  abort "Patch generation rejected; inspect install-report.txt"
-ui_print "- Verifying DEX alignment and ART class loading"
-CLASSPATH="$MODPATH/tools/verify.jar" "$VM" \
-  io.github.e3n.fcmu.Verify --jar "$MODPATH/.staging/services.jar" "$MODPATH/.staging/miui-services.jar" \
-  >> "$MODPATH/install-report.txt" 2>&1 || abort "Generated JAR failed ZIP verification"
-CLASSPATH="$MODPATH/tools/verify.jar:$MODPATH/.staging/services.jar:$MODPATH/.staging/miui-services.jar:$SYSTEMSERVERCLASSPATH" \
-  "$VM" -Xmx512m -Xverify:all io.github.e3n.fcmu.Verify \
-  io.github.e3n.fcmu.StaticPolicy com.android.server.am.ActivityManagerService \
-  com.android.server.am.BroadcastQueueModernStubImpl com.android.server.am.ProcessPolicy \
-  com.miui.server.greeze.GreezeManagerService com.miui.server.greeze.DomesticPolicyManager \
-  com.miui.server.greeze.power.ListAppsManager com.miui.server.greeze.power.AwareResourceControl \
-  >> "$MODPATH/install-report.txt" 2>&1 || abort "ART rejected the generated policy"
-[ "$(hash_file "$SOURCE_SERVICES_PATH")" = "$SOURCE_SERVICES_SHA256" ] &&
-[ "$(hash_file "$SOURCE_MIUI_PATH")" = "$SOURCE_MIUI_SHA256" ] &&
-[ "$(current_rom_identity)" = "$INSTALLED_ROM_SHA256" ] || abort "ROM changed during generation; nothing accepted"
-mv "$MODPATH/.staging" "$MODPATH/patched" || abort "Cannot accept generated framework pair"
-{
-  echo PROFILE_FORMAT=2
-  echo "SOURCE_SERVICES_PATH=$SOURCE_SERVICES_PATH"
-  echo "SOURCE_MIUI_PATH=$SOURCE_MIUI_PATH"
-  echo "SOURCE_SERVICES_SHA256=$SOURCE_SERVICES_SHA256"
-  echo "SOURCE_MIUI_SHA256=$SOURCE_MIUI_SHA256"
-  echo "INSTALLED_ROM_SHA256=$INSTALLED_ROM_SHA256"
-  echo "PATCHED_SERVICES_SHA256=$(hash_file "$MODPATH/patched/services.jar")"
-  echo "PATCHED_MIUI_SHA256=$(hash_file "$MODPATH/patched/miui-services.jar")"
-} > "$MODPATH/profile.conf"
-. "$MODPATH/profile.conf"
-profile_valid || abort "Incomplete generated compatibility profile"
-mkdir -p "$RUNDIR"
+mkdir -p "$RUNDIR" "$MODPATH/backend" || abort "Cannot write module/configuration files"
 chmod 700 "$RUNDIR"
 stamp=$(date +%Y%m%d_%H%M%S)
-mkdir -p "$RUNDIR/backups/static-$stamp"
+mkdir -p "$RUNDIR/backups/adaptive-$stamp"
 for f in packages.list managed.last unified.conf; do
-  [ ! -f "$RUNDIR/$f" ] || cp -p "$RUNDIR/$f" "$RUNDIR/backups/static-$stamp/$f"
+  [ ! -f "$RUNDIR/$f" ] || cp -p "$RUNDIR/$f" "$RUNDIR/backups/adaptive-$stamp/$f"
 done
-# Import the current legacy configuration before its uninstall cleanup runs.
-if [ -f /data/adb/millet_guard/packages.list ]; then
-  cp -p /data/adb/millet_guard/packages.list "$RUNDIR/packages.list"
+if [ ! -f "$RUNDIR/packages.list" ]; then
+  if [ -f /data/adb/millet_guard/packages.list ]; then cp -p /data/adb/millet_guard/packages.list "$RUNDIR/packages.list"
+  else printf '%s\n' com.google.android.gms > "$RUNDIR/packages.list"; fi
 fi
-[ -f "$RUNDIR/packages.list" ] || printf '%s\n' com.google.android.gms > "$RUNDIR/packages.list"
-# Replace PowerKeeper's effective GMS Doze exemption through the native user list.
-# The ownership-aware DeviceIdle tool preserves exemptions that predate this module.
-conf="$RUNDIR/unified.conf"
-[ -f "$conf" ] || : > "$conf"
-sed '/^DEVICEIDLE_GMS_POLICY=/d' "$conf" > "$conf.new"
-printf '%s\n' DEVICEIDLE_GMS_POLICY=enforce >> "$conf.new"
-mv "$conf.new" "$conf"
+conf=$RUNDIR/unified.conf
+[ -f "$conf" ] || printf '%s\n' DEVICEIDLE_GMS_POLICY=enforce > "$conf"
 chmod 600 "$conf" "$RUNDIR/packages.list"
+# Cache migration is best effort. It never blocks installation or changes the
+# currently running module. Legacy verified policy can survive this upgrade.
+OLD=/data/adb/modules/fcm_unified_guard
+if [ "$OLD" != "$MODPATH" ] && [ -d "$OLD/backend" ]; then
+  cp -a "$OLD/backend/." "$MODPATH/backend/" 2>/dev/null || true
+  rm -rf "$MODPATH/backend/build.lock" "$MODPATH/backend"/.build.*
+fi
+if [ ! -f "$MODPATH/backend/current" ] && [ -r "$OLD/profile.conf" ] && [ -r "$OLD/patched/services.jar" ]; then
+  (
+    . "$OLD/profile.conf"
+    SOURCE_SERVICES_PATH=${SOURCE_SERVICES_PATH:-/system/framework/services.jar}
+    SOURCE_MIUI_PATH=${SOURCE_MIUI_PATH:-/system_ext/framework/miui-services.jar}
+    [ "$(hash_file "$OLD/tools/policy.dex")" = "$(hash_file "$MODPATH/tools/policy.dex")" ] || exit 0
+    [ "$(hash_file "$OLD/patched/services.jar")" = "${PATCHED_SERVICES_SHA256:-}" ] || exit 0
+    [ "$(hash_file "$OLD/patched/miui-services.jar")" = "${PATCHED_MIUI_SHA256:-}" ] || exit 0
+    valid_hash "${SOURCE_SERVICES_SHA256:-}" && valid_hash "${SOURCE_MIUI_SHA256:-}" || exit 0
+    framework_path_ok "$SOURCE_SERVICES_PATH" && framework_path_ok "$SOURCE_MIUI_PATH" || exit 0
+    slot=legacy-$(date +%s)
+    mkdir -p "$MODPATH/backend/$slot/patched"
+    cp -p "$OLD/patched/"*.jar "$MODPATH/backend/$slot/patched/" || exit 0
+    {
+      echo PROFILE_FORMAT=3
+      echo "SOURCE_SERVICES_PATH=$SOURCE_SERVICES_PATH"
+      echo "SOURCE_MIUI_PATH=$SOURCE_MIUI_PATH"
+      echo "SOURCE_SERVICES_SHA256=$SOURCE_SERVICES_SHA256"
+      echo "SOURCE_MIUI_SHA256=$SOURCE_MIUI_SHA256"
+      echo "PATCHED_SERVICES_SHA256=$PATCHED_SERVICES_SHA256"
+      echo "PATCHED_MIUI_SHA256=$PATCHED_MIUI_SHA256"
+      echo "POLICY_SHA256=$(hash_file "$MODPATH/tools/policy.dex")"
+      echo "BASE_API_SHA256=$(hash_file /system/framework/framework.jar)"
+    } > "$MODPATH/backend/$slot/profile.conf"
+    for key in ams.broadcast greeze.allow greeze.defer greeze.limit domestic.defer broadcast.autostart lists.constructor lists.whitelist network.constructor process.whitelist; do
+      printf '%s\tready\tretained from verified legacy static backend\n' "$key"
+    done > "$MODPATH/backend/$slot/capabilities.tsv"
+    printf '%s\n' "$slot" > "$MODPATH/backend/current"
+  ) || true
+fi
+printf '%s\t%s\n' DETECT 'Installed; automatic capability detection after Android starts; base core available' > "$MODPATH/backend/state"
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 for f in "$MODPATH/"*.sh "$MODPATH/bin/"*.sh "$MODPATH/bin/milletctl"; do
   [ ! -f "$f" ] || set_perm "$f" 0 0 0755
 done
-chcon u:object_r:system_file:s0 "$MODPATH/patched/services.jar" "$MODPATH/patched/miui-services.jar" ||
-  abort "Cannot set framework file security context"
-ui_print "- One Magisk module; no FCM Live APK, LSPosed or Zygisk dependency"
-ui_print "- Original modules were not removed or disabled by this installer"
-ui_print "- Disable/remove legacy Millet Guard and FCM Live before the test reboot"
-ui_print "- No model/OS allowlist; compatibility is decided by current framework capabilities"
-ui_print "- Changed ROM/files and incomplete previous boot keep old generated patches off; reinstall to re-detect"
+if [ -d "$MODPATH/backend" ]; then
+  find "$MODPATH/backend" -path '*/patched/*.jar' -exec chcon u:object_r:system_file:s0 {} \; 2>/dev/null || true
+fi
+ui_print "- Installed. Unsupported interfaces degrade individual features, not the whole module."
+ui_print "- Magisk indicators: green=runtime checks OK; yellow=limited/adapting/reboot pending; red=observed error."
+ui_print "- OTA automatically re-detects and rebuilds. No manual ZIP reinstall or automatic reboot."
+ui_print "- User controls disabling/uninstalling this module."

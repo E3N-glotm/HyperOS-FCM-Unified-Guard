@@ -15,4 +15,5 @@ def main():
  run([javac,"--release","8","-cp",cp,"-d",out,*list((ROOT/"test-patcher").glob("*.java"))])
  run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.PatcherTest"])
  run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.CapabilityTest"])
+ run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.AdaptiveTest"])
 if __name__=="__main__":main()

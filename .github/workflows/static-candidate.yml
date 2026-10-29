@@ -22,15 +22,13 @@ jobs:
         run: |
           python static-patch/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
           python static-patch/test.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
-          bash static-patch/test-boot-guard.sh
-          bash static-patch/test-capabilities.sh
-          bash static-patch/test-install.sh
+          python static-patch/test-adaptive-runtime.py
           for f in static-patch/overlay/*.sh static-patch/overlay/bin/*.sh; do sh -n "$f"; done
           python static-patch/package.py
       - uses: actions/upload-artifact@v4
         with:
-          name: HyperOS-FCM-Unified-Guard-v0.3.0-alpha.3-static
+          name: HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static
           path: |
-            dist/HyperOS-FCM-Unified-Guard-v0.3.0-alpha.3-static.zip
-            dist/HyperOS-FCM-Unified-Guard-v0.3.0-alpha.3-static.zip.sha256
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip.sha256
           if-no-files-found: error

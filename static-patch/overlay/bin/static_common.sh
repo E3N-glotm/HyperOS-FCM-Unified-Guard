@@ -1,6 +1,4 @@
 #!/system/bin/sh
-# Capability checks are shared by installation, early boot and diagnostics.
-# No device, Android release or ROM-build allowlist is used here.
 hash_file() { sha256sum "$1" 2>/dev/null | cut -d ' ' -f 1; }
 valid_hash() {
   [ "${#1}" -eq 64 ] || return 1
@@ -12,43 +10,25 @@ framework_path_ok() {
   esac
   return 1
 }
-current_rom_identity() {
-  # An installation snapshot detects OTA changes; none of these values are
-  # compared with a release/build/device constant supplied by the project.
-  for prop in ro.build.fingerprint ro.build.version.sdk ro.build.version.incremental \
-      ro.system.build.fingerprint ro.system_ext.build.fingerprint \
-      ro.product.build.fingerprint ro.vendor.build.fingerprint; do
-    printf '%s=%s\n' "$prop" "$(getprop "$prop")"
-  done | sha256sum | cut -d ' ' -f 1
-}
 find_art_vm() {
   for name in dalvikvm64 dalvikvm; do
     vm=$(command -v "$name" 2>/dev/null) || continue
     [ ! -x "$vm" ] || { printf '%s\n' "$vm"; return 0; }
   done
-  for vm in /apex/com.android.art/bin/dalvikvm64 /apex/com.android.art/bin/dalvikvm \
-      /system/bin/dalvikvm64 /system/bin/dalvikvm; do
+  for vm in /apex/com.android.art/bin/dalvikvm64 /apex/com.android.art/bin/dalvikvm /system/bin/dalvikvm64 /system/bin/dalvikvm; do
     [ ! -x "$vm" ] || { printf '%s\n' "$vm"; return 0; }
   done
   return 1
 }
 discover_oem_jar() {
-  # Optional arguments make path discovery independently testable. Normal
-  # installation inspects the active classpath plus standard partition paths.
   if [ "$#" -eq 0 ]; then
-    # Prefer files the running system actually loads; unused copies on other
-    # partitions must not make an otherwise unambiguous classpath fail.
     set -- $(printf '%s' "${SYSTEMSERVERCLASSPATH:-}" | tr ':' ' ')
     active=0
     for candidate do
       case "$candidate" in */miui-services.jar) [ ! -r "$candidate" ] || active=1;; esac
     done
-    if [ "$active" = 1 ]; then
-      discover_oem_jar "$@"
-      return $?
-    fi
-    set -- /system_ext/framework/miui-services.jar /system/framework/miui-services.jar \
-      /product/framework/miui-services.jar
+    if [ "$active" = 1 ]; then discover_oem_jar "$@"; return $?; fi
+    set -- /system_ext/framework/miui-services.jar /system/framework/miui-services.jar /product/framework/miui-services.jar
   fi
   selected=
   for candidate do
@@ -56,19 +36,71 @@ discover_oem_jar() {
     [ -f "$candidate" ] && [ -r "$candidate" ] || continue
     canonical=$(readlink -f "$candidate") || return 1
     [ "$canonical" != "$selected" ] || continue
-    [ -z "$selected" ] || { echo 'Ambiguous OEM framework paths' >&2; return 1; }
+    [ -z "$selected" ] || return 1
     selected=$canonical
   done
   [ -n "$selected" ] || return 1
   printf '%s\n' "$selected"
 }
-profile_valid() {
-  [ "${PROFILE_FORMAT:-}" = 2 ] || return 1
+boot_id() {
+  cat /proc/sys/kernel/random/boot_id 2>/dev/null || cat /proc/uptime
+}
+cache_profile_valid() {
+  [ "${PROFILE_FORMAT:-}" = 3 ] || return 1
   framework_path_ok "${SOURCE_SERVICES_PATH:-}" || return 1
-  framework_path_ok "${SOURCE_MIUI_PATH:-}" || return 1
-  [ "$SOURCE_SERVICES_PATH" != "$SOURCE_MIUI_PATH" ] || return 1
-  for digest in "${SOURCE_SERVICES_SHA256:-}" "${SOURCE_MIUI_SHA256:-}" \
-      "${PATCHED_SERVICES_SHA256:-}" "${PATCHED_MIUI_SHA256:-}" "${INSTALLED_ROM_SHA256:-}"; do
-    valid_hash "$digest" || return 1
-  done
+  for digest in "${SOURCE_SERVICES_SHA256:-}" "${PATCHED_SERVICES_SHA256:-}" "${POLICY_SHA256:-}"; do valid_hash "$digest" || return 1; done
+  if [ -n "${SOURCE_MIUI_PATH:-}" ]; then
+    framework_path_ok "$SOURCE_MIUI_PATH" || return 1
+    [ "$SOURCE_SERVICES_PATH" != "$SOURCE_MIUI_PATH" ] || return 1
+    valid_hash "${SOURCE_MIUI_SHA256:-}" && valid_hash "${PATCHED_MIUI_SHA256:-}" || return 1
+  fi
+}
+cache_load() {
+  [ -r "$MODDIR/backend/current" ] || return 1
+  IFS= read -r generation < "$MODDIR/backend/current"
+  cache_load_slot "$generation"
+}
+cache_load_slot() {
+  generation=$1
+  case "$generation" in generation-[0-9]*|legacy-[0-9]*) :;; *) return 1;; esac
+  case "$generation" in *[!A-Za-z0-9._-]*) return 1;; esac
+  CACHE_DIR=$MODDIR/backend/$generation
+  [ -r "$CACHE_DIR/profile.conf" ] || return 1
+  SOURCE_MIUI_PATH= SOURCE_MIUI_SHA256= PATCHED_MIUI_SHA256= BASE_API_SHA256=
+  . "$CACHE_DIR/profile.conf"
+  cache_profile_valid
+}
+cache_payload_ok() {
+  [ "$(hash_file "$CACHE_DIR/patched/services.jar")" = "$PATCHED_SERVICES_SHA256" ] || return 1
+  if [ -n "$SOURCE_MIUI_PATH" ]; then
+    [ "$(hash_file "$CACHE_DIR/patched/miui-services.jar")" = "$PATCHED_MIUI_SHA256" ] || return 1
+  fi
+}
+cache_security_ok() {
+  command -v getenforce >/dev/null 2>&1 || return 0
+  [ "$(getenforce 2>/dev/null)" = Enforcing ] || return 0
+  ls -Zd "$CACHE_DIR/patched/services.jar" 2>/dev/null | grep -q 'u:object_r:system_file:s0' || return 1
+  [ -z "$SOURCE_MIUI_PATH" ] || ls -Zd "$CACHE_DIR/patched/miui-services.jar" 2>/dev/null | grep -q 'u:object_r:system_file:s0'
+}
+cache_source_ok() {
+  [ "$(hash_file "$SOURCE_SERVICES_PATH")" = "$SOURCE_SERVICES_SHA256" ] || return 1
+  if [ -n "$SOURCE_MIUI_PATH" ]; then
+    [ "$(hash_file "$SOURCE_MIUI_PATH")" = "$SOURCE_MIUI_SHA256" ] || return 1
+  fi
+  [ -z "$BASE_API_SHA256" ] || [ "$(hash_file /system/framework/framework.jar)" = "$BASE_API_SHA256" ] || return 1
+  [ "$(hash_file "$MODDIR/tools/policy.dex")" = "$POLICY_SHA256" ]
+}
+cache_mounted() {
+  [ "$(hash_file "$SOURCE_SERVICES_PATH")" = "$PATCHED_SERVICES_SHA256" ] || return 1
+  [ -z "$SOURCE_MIUI_PATH" ] || [ "$(hash_file "$SOURCE_MIUI_PATH")" = "$PATCHED_MIUI_SHA256" ]
+}
+backend_note() {
+  mkdir -p "$MODDIR/backend"
+  printf '%s\t%s\n' "$1" "$2" > "$MODDIR/backend/state.new"
+  mv -f "$MODDIR/backend/state.new" "$MODDIR/backend/state"
+}
+bounded() {
+  if [ -x /data/adb/magisk/busybox ]; then /data/adb/magisk/busybox timeout 180 "$@"
+  elif command -v timeout >/dev/null 2>&1; then timeout 180 "$@"
+  else "$@"; fi
 }

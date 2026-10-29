@@ -2,7 +2,7 @@
 
 **简体中文 | [English](README_EN.md)**
 
-本分支另有 [纯 Magisk 候选版 v0.3.0-alpha.3](static-patch/README.md)：通过框架能力检测替代写死的机型和系统版本白名单，安装时生成本机补丁，无需 FCM Live APK/LSPosed。跨 ROM 运行验证仍待完成；下文保留 v0.2.0 发布版的架构与安装说明。
+本分支最新 [纯 Magisk 候选版 v0.4.0-alpha.1](static-patch/README.md) 支持按功能降级、Magisk 状态灯和系统升级后的自动重建；缺少接口仍可安装，基础核心独立工作，不自动禁用/卸载/重启。真实 OTA 与跨 ROM 验证仍待完成；下文保留 v0.2.0 发布版说明。
 
 v0.2.0 将 Millet Guard 守护核心和经过实机验证的 E3N FCM Live 桥接纳入同一个项目和 Magisk ZIP，目标是保留原组合的作用并减少重复后台工作。**完整功能仍使用 LSPosed；这不是 Magisk-only 版本，也不是新的注入框架。**
 

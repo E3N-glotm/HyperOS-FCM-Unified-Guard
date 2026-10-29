@@ -1,33 +1,36 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
 . "$MODDIR/bin/static_common.sh"
-STATUS="$MODDIR/static-status.txt"
-PENDING="$MODDIR/static-boot-pending"
-fail() {
-  printf '%s\n' "INACTIVE: $*" > "$STATUS"
-  touch "$MODDIR/disable"
-  rm -f "$PENDING"
+mkdir -p "$MODDIR/backend"
+# An incomplete prior boot quarantines only that generated backend, never the
+# module or its base workers. A changed system/policy can build a new backend.
+if [ -r "$MODDIR/backend/pending" ]; then
+  cp "$MODDIR/backend/pending" "$MODDIR/backend/quarantine"
+  rm -f "$MODDIR/backend/pending"
+  backend_note QUARANTINED "previous framework boot was not acknowledged; base core remains enabled"
+fi
+cache_load || { backend_note DETECT "no usable cached backend; automatic detection after boot"; exit 0; }
+if [ "$(cat "$MODDIR/backend/quarantine" 2>/dev/null)" = "$generation" ]; then
+  backend_note QUARANTINED "cached generation is quarantined; base core remains enabled"
   exit 0
-}
-[ -r "$MODDIR/profile.conf" ] || fail "installation profile missing"
-. "$MODDIR/profile.conf"
-profile_valid || fail "installation profile invalid; reinstall for capability detection"
-[ ! -e "$PENDING" ] || fail "previous boot was not acknowledged; automatic rollback"
-if [ -d /data/adb/modules/gms_millet_guard ] &&
-   [ ! -e /data/adb/modules/gms_millet_guard/disable ] &&
-   [ ! -e /data/adb/modules/gms_millet_guard/remove ]; then
-  fail "legacy Millet Guard is enabled"
 fi
-[ "$(current_rom_identity)" = "$INSTALLED_ROM_SHA256" ] || fail "ROM identity changed since installation; re-detect before use"
-[ "$(hash_file "$SOURCE_SERVICES_PATH")" = "$SOURCE_SERVICES_SHA256" ] || fail "source services hash changed"
-[ "$(hash_file "$SOURCE_MIUI_PATH")" = "$SOURCE_MIUI_SHA256" ] || fail "source OEM framework hash changed"
-[ "$(hash_file "$MODDIR/patched/services.jar")" = "$PATCHED_SERVICES_SHA256" ] || fail "corrupt generated services"
-[ "$(hash_file "$MODDIR/patched/miui-services.jar")" = "$PATCHED_MIUI_SHA256" ] || fail "corrupt generated miui-services"
-: > "$PENDING"
-mount -o bind "$MODDIR/patched/services.jar" "$SOURCE_SERVICES_PATH" ||
-  fail "services bind failed"
-if ! mount -o bind "$MODDIR/patched/miui-services.jar" "$SOURCE_MIUI_PATH"; then
-  umount "$SOURCE_SERVICES_PATH"
-  fail "miui-services bind failed; first mount reverted"
+cache_payload_ok || { backend_note REBUILD "cached files damaged; automatic regeneration after boot"; exit 0; }
+cache_security_ok || { backend_note REBUILD "cached framework security context unavailable; base core starts independently"; exit 0; }
+cache_source_ok || { backend_note REBUILD "system inputs changed; automatic regeneration after boot"; exit 0; }
+printf '%s\n' "$generation" > "$MODDIR/backend/pending"
+if ! mount -o bind "$CACHE_DIR/patched/services.jar" "$SOURCE_SERVICES_PATH"; then
+  rm -f "$MODDIR/backend/pending"
+  backend_note ERROR "services mount failed; base core remains enabled"
+  exit 0
 fi
-printf '%s\n' "MOUNTED: static policy; awaiting Android boot completion" > "$STATUS"
+if [ -n "$SOURCE_MIUI_PATH" ] && ! mount -o bind "$CACHE_DIR/patched/miui-services.jar" "$SOURCE_MIUI_PATH"; then
+  if umount "$SOURCE_SERVICES_PATH"; then
+    backend_note ERROR "OEM mount failed; first mount reverted; base core remains enabled"
+  else
+    backend_note ERROR "OEM mount and first-mount rollback failed; framework activation incomplete"
+  fi
+  rm -f "$MODDIR/backend/pending"
+  exit 0
+fi
+printf '%s %s\n' "$(boot_id)" "$generation" > "$MODDIR/backend/mounted"
+backend_note ACTIVE "verified cached framework loaded; base core starts independently"

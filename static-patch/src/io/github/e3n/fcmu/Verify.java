@@ -1,6 +1,7 @@
 package io.github.e3n.fcmu;
 public final class Verify {
  public static void main(String[] args)throws Exception{
+  if(args.length==2&&args[0].equals("--adaptive")){adaptive(args[1]);return;}
   if(args.length>0&&args[0].equals("--jar")){
    for(int i=1;i<args.length;i++)checkZip(args[i]);
    return;
@@ -21,6 +22,37 @@ public final class Verify {
   System.out.println("ART_API PowerExemptionManager signature OK");
   System.out.println("ART_API caller identity and broadcast fields OK");
  }
+ static void adaptive(String path)throws Exception{
+  int failures=0;
+  try(java.io.BufferedReader in=new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(path),"UTF-8"))){
+   String line;while((line=in.readLine())!=null){
+    String[] cols=line.split("\t",3);if(cols.length<2||!cols[1].equals("ready"))continue;
+    String k=cols[0];
+    try{
+     load("io.github.e3n.fcmu.StaticPolicy");
+     if(k.equals("ams.broadcast")){
+      Class<?> a=load("com.android.server.am.ActivityManagerService");
+      a.getDeclaredMethod("getRecordForAppLOSP",Class.forName("android.app.IApplicationThread"));
+      checkField(a,"mContext",android.content.Context.class);
+      checkField(load("com.android.server.am.ProcessRecord"),"info",android.content.pm.ApplicationInfo.class);
+      Class<?> pem=Class.forName("android.os.PowerExemptionManager");pem.getDeclaredConstructor(android.content.Context.class);
+      pem.getDeclaredMethod("addToTemporaryAllowList",String.class,int.class,String.class,long.class);
+     }else if(k.startsWith("greeze."))load("com.miui.server.greeze.GreezeManagerService");
+     else if(k.equals("domestic.defer"))load("com.miui.server.greeze.DomesticPolicyManager");
+     else if(k.equals("broadcast.autostart")){
+      load("com.android.server.am.BroadcastQueueModernStubImpl");
+      Class<?> br=load("com.android.server.am.BroadcastRecord");checkField(br,"callerPackage",String.class);checkField(br,"intent",android.content.Intent.class);
+     }else if(k.startsWith("lists."))load("com.miui.server.greeze.power.ListAppsManager");
+     else if(k.equals("network.constructor"))load("com.miui.server.greeze.power.AwareResourceControl");
+     else if(k.equals("process.whitelist"))load("com.android.server.am.ProcessPolicy");
+     else throw new IllegalArgumentException("unknown feature");
+     System.out.println("VERIFY_OK\t"+k);
+    }catch(Throwable e){failures++;System.out.println("VERIFY_FAIL\t"+k+"\t"+e.getClass().getSimpleName()+": "+String.valueOf(e.getMessage()).replace('\n',' '));}
+   }
+  }
+  if(failures>0)System.exit(3);
+ }
+ static Class<?> load(String name)throws Exception{Class<?> c=Class.forName(name,false,Verify.class.getClassLoader());c.getDeclaredMethods();return c;}
  static void checkField(Class<?> c,String name,Class<?> type)throws Exception{
   if(c.getDeclaredField(name).getType()!=type)throw new NoSuchFieldException(c.getName()+"->"+name+" type mismatch");
  }

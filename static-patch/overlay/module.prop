@@ -1,6 +1,6 @@
 id=fcm_unified_guard
-name=HyperOS FCM Unified Guard (Static Candidate)
-version=0.3.0-alpha.3
-versionCode=30003
+name=HyperOS FCM Unified Guard 🟡
+version=0.4.0-alpha.1
+versionCode=40001
 author=E3N
-description=Single Magisk-only FCM candidate. Detects framework capabilities instead of model/OS allowlists, generates local policy and retains Millet/FCM recovery. Requires compatible OEM APIs and ART validation. No APK/LSPosed/Zygisk. Cross-ROM runtime and battery validation pending.
+description=🟡 已安装，等待启动检测 | 按功能降级、Magisk 状态灯、系统升级后自动重建 | 不自动禁用/卸载/重启
