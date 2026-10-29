@@ -4,6 +4,8 @@ MODDIR=$(cd "$MODDIR" && pwd)
 RUNDIR=${FCM_UNIFIED_RUNTIME:-/data/adb/fcm_unified_guard}
 . "$MODDIR/bin/static_common.sh"
 . "$MODDIR/bin/runtime_workers.sh"
+backend_read_state
+[ "$phase" != CHECKING ] || backend_publish_status CHECKING
 mkdir -p "$RUNDIR"
 OUT=$RUNDIR/.health.$$
 level=0
@@ -62,20 +64,20 @@ idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
 if printf '%s\n' "$idle" | grep -Eq '^(system|user),com[.]google[.]android[.]gms,'; then
   emit GREEN DEVICEIDLE "native GMS exemption present"
 else emit YELLOW DEVICEIDLE "native GMS exemption missing/unavailable"; fi
-phase=DETECT detail="capability detection pending"
-if [ -f "$MODDIR/backend/state" ]; then
-  IFS="$(printf '\t')" read -r phase detail < "$MODDIR/backend/state" || true
-fi
-case "$phase" in
- ACTIVE) emit GREEN BACKEND "$detail";;
- ERROR|QUARANTINED) emit RED BACKEND "$detail";;
- *) emit YELLOW BACKEND "$detail";;
-esac
+backend_read_state
 mounted=0 capfile=
 if cache_load; then
   capfile=$CACHE_DIR/capabilities.tsv
   cache_payload_ok && cache_security_ok && cache_mounted && mounted=1
 fi
+case "$phase:$mounted" in
+ ACTIVE:0|MOUNTED:0) phase=ERROR; detail='framework payload not verified in this boot; inspect mount/cache diagnostics';;
+esac
+case "$phase" in
+ ACTIVE) emit GREEN BACKEND "$detail";;
+ ERROR|QUARANTINED) emit RED BACKEND "$detail";;
+ *) emit YELLOW BACKEND "$detail";;
+esac
 [ -n "$capfile" ] || capfile=$MODDIR/backend/last-capabilities.tsv
 ready=0 total=0
 if [ -r "$capfile" ]; then
@@ -84,8 +86,10 @@ if [ -r "$capfile" ]; then
     total=$((total+1))
     if [ "$state" = ready ] && [ "$mounted" = 1 ]; then
       ready=$((ready+1)); emit GREEN "$feature" "adapted backend is mounted"
-    elif [ "$state" = ready ]; then
+    elif [ "$state" = ready ] && [ "$phase" = READY ]; then
       emit YELLOW "$feature" "generated; next normal reboot required"
+    elif [ "$state" = ready ]; then
+      emit YELLOW "$feature" "cached; current-boot framework validation pending"
     else emit YELLOW "$feature" "$reason"; fi
   done < "$capfile"
 else emit YELLOW FEATURES "static feature report not available; base core remains independent"; fi
@@ -94,22 +98,13 @@ case "$level" in
  1) lamp='🟡'; label='部分功能/适配中';;
  *) lamp='🔴'; label='检测到问题';;
 esac
-case "$phase" in
- ACTIVE) phase_label='框架已加载';; READY) phase_label='待重启生效';; BUILDING) phase_label='自动适配中';;
- CORE_ONLY) phase_label='基础模式';; QUARANTINED) phase_label='框架需检查';; ERROR) phase_label='适配异常';;
- *) phase_label='等待自动适配';;
-esac
+phase_label=$(backend_phase_label "$phase")
 case "$observed" in connected) fcm_label='在线';; disconnected) fcm_label='断开';; *) fcm_label='未知';; esac
 summary="$lamp $label | FCM$fcm_label | 框架$ready/$total | $phase_label"
 printf '%s\n' "$summary" > "$RUNDIR/health-summary.txt"
 printf '%s\n' "Checked: $(date '+%Y-%m-%d %H:%M:%S')" >> "$OUT"
 printf '%s\n' 'Green indicates current checks only; it does not prove end-to-end message delivery.' >> "$OUT"
 mv -f "$OUT" "$RUNDIR/health-status.txt"
-if [ -r "$MODDIR/module.prop" ] && ! grep -Fqx "description=$summary" "$MODDIR/module.prop"; then
-  sed '/^description=/d;/^name=/d' "$MODDIR/module.prop" > "$MODDIR/.module.prop.$$"
-  printf 'name=HyperOS FCM Unified Guard %s\ndescription=%s\n' "$lamp" "$summary" >> "$MODDIR/.module.prop.$$"
-  chmod 644 "$MODDIR/.module.prop.$$"
-  mv -f "$MODDIR/.module.prop.$$" "$MODDIR/module.prop"
-fi
+module_status_write "$lamp" "$summary"
 cat "$RUNDIR/health-summary.txt"
 cat "$RUNDIR/health-status.txt"

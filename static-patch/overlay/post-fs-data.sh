@@ -2,6 +2,8 @@
 MODDIR=${0%/*}
 . "$MODDIR/bin/static_common.sh"
 mkdir -p "$MODDIR/backend"
+# Remove the previous boot's reboot instruction before any framework checks.
+backend_note CHECKING "checking cached framework for this boot"
 # An incomplete prior boot quarantines only that generated backend, never the
 # module or its base workers. A changed system/policy can build a new backend.
 if [ -r "$MODDIR/backend/pending" ]; then
@@ -33,4 +35,4 @@ if [ -n "$SOURCE_MIUI_PATH" ] && ! mount -o bind "$CACHE_DIR/patched/miui-servic
   exit 0
 fi
 printf '%s %s\n' "$(boot_id)" "$generation" > "$MODDIR/backend/mounted"
-backend_note ACTIVE "verified cached framework loaded; base core starts independently"
+backend_note MOUNTED "verified framework mounted; waiting for Android boot acknowledgement; no further reboot needed"

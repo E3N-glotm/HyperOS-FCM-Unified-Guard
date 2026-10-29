@@ -13,6 +13,7 @@ class RuntimeTests(unittest.TestCase):
    if p.is_file():
     dest=self.mod/p.relative_to(ROOT/"overlay");dest.parent.mkdir(parents=True,exist_ok=True)
     text=p.read_text(encoding="utf-8").replace("/system/bin/sh","/bin/sh")
+    text=text.replace("cat /proc/sys/kernel/random/boot_id",'cat "$TEST_BOOT_ID_FILE"')
     for old,new in [("/system_ext/",str(self.root)+"/system_ext/"),("/system/",str(self.root)+"/system/"),("/product/",str(self.root)+"/product/"),("/data/adb/",str(self.root)+"/data/adb/")]:text=text.replace(old,new)
     dest.write_text(text,encoding="utf-8");dest.chmod(0o755)
   (self.mod/"tools").mkdir()
@@ -21,8 +22,10 @@ class RuntimeTests(unittest.TestCase):
   self.oem=self.root/"system_ext/framework/miui-services.jar";self.oem.parent.mkdir(parents=True);self.oem.write_text("oem-v1")
   (self.services.parent/"framework.jar").write_text("apis-v1")
   (self.mod/"bin/runtime_workers.sh").write_text("worker_ticks() { echo 456; }\n")
+  (self.mod/"bin/deviceidle_policy.sh").write_text("exit 0\n")
   (self.mod/"core-service.sh").write_text('echo core-started > "$FCM_UNIFIED_RUNTIME/core-started"\n')
-  self.env=dict(os.environ,PATH=str(self.bin)+os.pathsep+os.environ["PATH"],FCM_UNIFIED_RUNTIME=str(self.run),MODPATH=str(self.mod),MODE="full",SYSTEMSERVERCLASSPATH="",TEST_SERVICES=str(self.services),KEYS=" ".join(KEYS))
+  self.boot_number=0;self.boot_file=self.root/"boot-id";self.boot_file.write_text("test-boot-0\n")
+  self.env=dict(os.environ,PATH=str(self.bin)+os.pathsep+os.environ["PATH"],FCM_UNIFIED_RUNTIME=str(self.run),MODPATH=str(self.mod),MODE="full",SYSTEMSERVERCLASSPATH="",TEST_SERVICES=str(self.services),TEST_BOOT_ID_FILE=str(self.boot_file),KEYS=" ".join(KEYS))
   self.tool("getprop",'[ "$1" != sys.boot_completed ] || echo 1\n')
   self.tool("sleep","exit 0\n")
   self.tool("chcon","exit 0\n")
@@ -84,8 +87,10 @@ esac
   self.env["MODE"]=mode;return self.script("bin/build_backend.sh","retry")
  def state(self):return (self.mod/"backend/state").read_text().split("\t",1)[0]
  def cache(self):return self.mod/"backend"/(self.mod/"backend/current").read_text().strip()
+ def advance_boot(self):
+  self.boot_number+=1;self.boot_file.write_text(f"test-boot-{self.boot_number}\n")
  def boot(self):
-  self.env["MODE"]="full";self.script("post-fs-data.sh")
+  self.advance_boot();self.env["MODE"]="full";self.script("post-fs-data.sh")
  def health(self,mode="full"):
   self.env["MODE"]=mode;self.script("bin/health_status.sh","--fresh")
   return (self.run/"health-summary.txt").read_text()
@@ -104,6 +109,7 @@ esac
   self.assertTrue((self.run/"core-started").exists());self.assertEqual(self.state(),"CORE_ONLY")
  def test_full_generation_boot_and_green_status(self):
   self.build();self.assertEqual(self.state(),"READY");self.boot()
+  self.assertEqual(self.state(),"MOUNTED");self.script("service.sh")
   self.assertEqual(self.state(),"ACTIVE");self.assertIn("🟢",self.health())
   self.assertIn("name=HyperOS FCM Unified Guard 🟢",(self.mod/"module.prop").read_text())
  def test_partial_adaptation_is_yellow(self):
@@ -166,6 +172,66 @@ esac
   r=self.script("bin/build_backend.sh","retry",ok=False)
   self.assertNotEqual(r.returncode,0);self.assertEqual(self.state(),"ERROR")
   self.assertFalse((self.mod/"backend/current").exists());self.assertFalse((self.mod/"disable").exists())
+ def test_boot_replaces_previous_reboot_notice_before_health(self):
+  self.build();self.health();self.assertIn("待重启生效",(self.mod/"module.prop").read_text())
+  self.boot()
+  description=(self.mod/"module.prop").read_text()
+  self.assertNotIn("待重启",description)
+  self.assertIn("框架已挂载",description);self.assertIn("无需再次重启",description)
+ def test_mount_failure_replaces_previous_reboot_notice_immediately(self):
+  self.build();self.health();self.advance_boot();self.env["MODE"]="mount-fail"
+  self.script("post-fs-data.sh")
+  description=(self.mod/"module.prop").read_text()
+  self.assertNotIn("待重启",description);self.assertIn("适配异常",description)
+ def test_stale_ready_from_previous_boot_does_not_request_reboot(self):
+  self.build();self.health();self.advance_boot()
+  summary=self.health()
+  self.assertNotIn("待重启",summary)
+  self.assertIn("正在检查本次启动",summary)
+  self.assertNotIn("next normal reboot required",(self.run/"health-status.txt").read_text())
+ def test_service_resets_stale_notice_before_starting_core(self):
+  self.build();self.health();self.advance_boot()
+  (self.mod/"core-service.sh").write_text('cp "${0%/*}/module.prop" "$FCM_UNIFIED_RUNTIME/core-entry.prop"\n')
+  self.script("service.sh")
+  description=(self.run/"core-entry.prop").read_text()
+  self.assertNotIn("待重启",description);self.assertIn("正在检查本次启动",description)
+ def test_current_boot_ready_still_requests_one_reboot(self):
+  self.build();self.assertIn("待重启生效",self.health())
+  self.assertIn("next normal reboot required",(self.run/"health-status.txt").read_text())
+ def test_new_generation_does_not_lose_its_reboot_request(self):
+  self.build();self.boot();self.script("service.sh")
+  (self.mod/"tools/patcher.jar").write_text("new-generator")
+  self.script("bin/build_backend.sh","retry")
+  self.assertIn("待重启生效",self.health())
+ def test_mounted_backend_waits_for_ack_without_reboot_request(self):
+  self.build();self.boot()
+  summary=self.health()
+  self.assertIn("框架已挂载",summary);self.assertIn("无需再次重启",summary)
+  self.assertIn("🟡",summary);self.assertNotIn("待重启",summary)
+ def test_active_state_without_actual_payload_does_not_claim_loaded(self):
+  self.build();self.boot();self.script("service.sh")
+  self.services.write_text("stock-v1");self.oem.write_text("oem-v1")
+  summary=self.health()
+  self.assertIn("🔴",summary);self.assertNotIn("框架已加载",summary)
+ def test_action_on_active_backend_keeps_generation(self):
+  self.build();self.boot();self.script("service.sh")
+  before=(self.mod/"backend/current").read_text();self.script("action.sh")
+  self.assertEqual((self.mod/"backend/current").read_text(),before)
+  self.assertEqual(self.state(),"ACTIVE");self.assertIn("框架已加载",(self.mod/"module.prop").read_text())
+ def test_action_on_mounted_backend_does_not_skip_ack(self):
+  self.build();self.boot();self.script("action.sh")
+  self.assertEqual(self.state(),"MOUNTED");self.assertTrue((self.mod/"backend/pending").exists())
+  self.assertNotIn("待重启",(self.mod/"module.prop").read_text())
+  (self.cache()/"source/services.jar").unlink();(self.mod/"tools/patcher.jar").write_text("new-generator")
+  self.script("action.sh")
+  self.assertEqual(self.state(),"MOUNTED");self.assertTrue((self.mod/"backend/pending").exists())
+ def test_action_on_ready_cache_does_not_regenerate(self):
+  self.build();before=(self.mod/"backend/current").read_text();self.script("action.sh")
+  self.assertEqual((self.mod/"backend/current").read_text(),before);self.assertEqual(self.state(),"READY")
+ def test_action_retries_failed_generation(self):
+  self.env["MODE"]="generation-fail";self.script("bin/build_backend.sh","auto",ok=False)
+  self.env["MODE"]="full";self.script("action.sh")
+  self.assertEqual(self.state(),"READY");self.assertTrue((self.mod/"backend/current").exists())
 
 if __name__=="__main__":
  if os.name=="nt":

@@ -3,6 +3,8 @@ MODDIR=${0%/*}
 . "$MODDIR/bin/static_common.sh"
 # No static-backend gate: the guard starts on every supported Magisk install.
 [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] || exit 0
+backend_read_state
+[ "$phase" != CHECKING ] || backend_note CHECKING "checking this boot before starting the base guard"
 /system/bin/sh "$MODDIR/core-service.sh" </dev/null
 i=0
 while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$i" -lt 180 ]; do sleep 2; i=$((i+1)); done

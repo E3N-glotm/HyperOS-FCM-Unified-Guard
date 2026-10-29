@@ -2,9 +2,9 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.1**，无需 FCM Live APK、LSPosed 或 Zygisk。
+单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.2**，无需 FCM Live APK、LSPosed 或 Zygisk。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.1/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.1/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
@@ -25,11 +25,11 @@
 
 ## 安装与升级
 
-1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
+1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
 2. 备份 `/data/adb/fcm_unified_guard/`；若从旧 Millet Guard 迁移，同时保留旧名单与所有权记录。升级保留已有 `packages.list` 和 `unified.conf`，仅在首次没有配置时导入旧名单。
 3. 在 Magisk 中安装 ZIP。关闭旧 Millet Guard 的重复守护；若此前启用了 FCM Live/LSPosed 桥接，关闭对应功能，避免与静态策略重复处理。
-4. 将需要管理的应用逐行写入 `/data/adb/fcm_unified_guard/packages.list`，正常重启后查看模块状态；生成的新框架缓存如显示待生效，再于方便时正常重启。
-5. 点击 Magisk“操作”，检查基础核心、FCM、豁免和各项静态功能。
+4. 将需要管理的应用逐行写入 `/data/adb/fcm_unified_guard/packages.list`。首次安装后正常重启，等待“自动适配中”变为“待重启生效”，再正常重启一次；已有可用缓存时可能无需这一步等待。
+5. 最后一次重启后会先显示“框架已挂载，正在确认启动，无需再次重启”，等待确认完成后显示“框架已加载”。此时不要连续重启；点击“操作”可查看基础核心、FCM、豁免和各项静态功能，正常或待确认的缓存不会因此重复生成。
 
 模块 ID 为 `fcm_unified_guard`。不兼容、检测或生成失败不会自动禁用、卸载整个模块，也不会自动重启手机。与旧核心同时运行时会报告冲突并避免重复写入，由用户决定保留哪一个。旧模块卸载可能撤销其管理记录，迁移时应保留备份。
 
@@ -41,7 +41,7 @@
 | 🟡 部分可用/待生效 | 部分接口缺失、诊断未知、适配中，或新缓存等待下次正常重启 |
 | 🔴 需要查看 | 已观察到断联、工作进程缺失、生成/挂载错误、冲突或补丁启动未确认 |
 
-灰色功能项表示相关 OEM 接口不存在或无法读取。刷新 Magisk 模块列表可查看最近状态；“操作”会立即重新检查。绿灯只说明当前检查通过，不能代替真实消息到达测试；连接异常也可能来自网络或 GMS。
+灰色功能项表示相关 OEM 接口不存在或无法读取。刷新 Magisk 模块列表可查看最近状态；“操作”会立即重新检查，适配失败时重试。启动状态只对应本次开机，上一次的“待重启生效”不会沿用；“正在检查本次启动”或“框架已挂载，正在确认启动”都应等待，无需再次重启。绿灯只说明当前检查通过，不能代替真实消息到达测试；连接异常也可能来自网络或 GMS。
 
 ## 系统升级后
 
@@ -55,7 +55,7 @@ OTA 后首次启动可能暂处于基础模式。静态框架代码无法可靠�
 
 状态检查复用五分钟维护周期及 FCM 健康缓存，没有为状态灯增加常驻进程、AlarmManager 唤醒或专用唤醒锁。核心合并了日志订阅和维护定时循环，并过滤无关设置事件。系统变化后的框架生成会有一次性 CPU 与 I/O 开销，正常运行不会持续编译。
 
-已通过 34 项策略检查、严格字节码契约与按功能降级测试，以及 18 项 Linux 安装/启动/状态/OTA 重建流程测试。当前手机的隔离安装与原厂框架生成得到 10/10 功能，逐项 ART 校验通过；**这不等于新版已完成实际冷启动或真实 OTA 验收**。
+已通过 34 项策略检查、严格字节码契约与按功能降级测试，以及 30 项 Linux 安装/启动/状态/OTA 重建流程测试。当前手机的隔离安装与原厂框架生成得到 10/10 功能，逐项 ART 校验通过；**这不等于新版已完成实际冷启动或真实 OTA 验收**。
 
 端到端消息、跨机型和同条件电池 A/B 尚未完成，不能给出实测省电比例。CPU/RSS 采样也不能直接换算整机耗电。参见 [新版验证记录](static-patch/VALIDATION.md)；旧架构记录在 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
