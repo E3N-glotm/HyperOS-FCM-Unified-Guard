@@ -94,10 +94,52 @@ cache_mounted() {
   [ "$(hash_file "$SOURCE_SERVICES_PATH")" = "$PATCHED_SERVICES_SHA256" ] || return 1
   [ -z "$SOURCE_MIUI_PATH" ] || [ "$(hash_file "$SOURCE_MIUI_PATH")" = "$PATCHED_MIUI_SHA256" ]
 }
+module_status_write() {
+  mstatus_lamp=$1 mstatus_summary=$2
+  [ -r "$MODDIR/module.prop" ] || return 0
+  grep -Fqx "description=$mstatus_summary" "$MODDIR/module.prop" && return 0
+  mstatus_tmp=$MODDIR/.module.prop.$$
+  sed '/^description=/d;/^name=/d' "$MODDIR/module.prop" > "$mstatus_tmp" || return 0
+  printf 'name=HyperOS FCM Unified Guard %s\ndescription=%s\n' "$mstatus_lamp" "$mstatus_summary" >> "$mstatus_tmp"
+  chmod 644 "$mstatus_tmp"
+  mv -f "$mstatus_tmp" "$MODDIR/module.prop" || true
+}
+backend_phase_label() {
+  case "$1" in
+    CHECKING) echo '正在检查本次启动，无需再次重启';;
+    MOUNTED) echo '框架已挂载，正在确认启动，无需再次重启';;
+    ACTIVE) echo '框架已加载';;
+    READY) echo '待重启生效';;
+    BUILDING) echo '自动适配中，请稍候';;
+    REBUILD) echo '等待自动重建';;
+    CORE_ONLY) echo '基础模式';;
+    QUARANTINED) echo '框架需检查';;
+    ERROR) echo '适配异常';;
+    *) echo '等待自动适配';;
+  esac
+}
+backend_publish_status() {
+  # Publish the boot phase without dumpsys, hashing or starting another worker.
+  # A completed bind mount is not yet an acknowledged Android boot or FCM check.
+  case "$1" in ERROR|QUARANTINED) bstatus_lamp='🔴';; *) bstatus_lamp='🟡';; esac
+  bstatus_summary="$bstatus_lamp $(backend_phase_label "$1")"
+  [ "$1" != ACTIVE ] || bstatus_summary="$bstatus_summary | 守护与FCM检查中"
+  module_status_write "$bstatus_lamp" "$bstatus_summary"
+}
+backend_read_state() {
+  phase=CHECKING detail='checking current boot; previous boot status is not actionable' state_boot=
+  if [ -r "$MODDIR/backend/state" ]; then
+    IFS="$(printf '\t')" read -r phase detail state_boot < "$MODDIR/backend/state" || true
+  fi
+  if [ "$state_boot" != "$(boot_id)" ]; then
+    phase=CHECKING detail='checking current boot; previous boot status is not actionable'
+  fi
+}
 backend_note() {
   mkdir -p "$MODDIR/backend"
-  printf '%s\t%s\n' "$1" "$2" > "$MODDIR/backend/state.new"
-  mv -f "$MODDIR/backend/state.new" "$MODDIR/backend/state"
+  printf '%s\t%s\t%s\n' "$1" "$2" "$(boot_id)" > "$MODDIR/backend/state.$$"
+  mv -f "$MODDIR/backend/state.$$" "$MODDIR/backend/state" || return 1
+  backend_publish_status "$1"
 }
 bounded() {
   if [ -x /data/adb/magisk/busybox ]; then /data/adb/magisk/busybox timeout 180 "$@"

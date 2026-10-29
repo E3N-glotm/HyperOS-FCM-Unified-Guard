@@ -49,7 +49,9 @@ if [ "$loaded" = 1 ] && cache_payload_ok; then
   if cache_mounted; then
     if [ "$POLICY_SHA256" = "$policy_hash" ] && [ "${GENERATOR_SHA256:-}" = "$generator_hash" ] && [ "$mode" != retry ] && cache_security_ok; then
       if [ "$(cat "$B/current" 2>/dev/null)" = "$generation" ]; then
-        backend_note ACTIVE "current backend verified; base guard remains active"
+        if [ -r "$B/pending" ]; then
+          backend_note MOUNTED "framework mounted; waiting for boot acknowledgement; no further reboot needed"
+        else backend_note ACTIVE "current backend verified; base guard remains active"; fi
       else backend_note READY "updated backend ready; next normal reboot activates it"; fi
       exit 0
     fi
@@ -61,7 +63,9 @@ if [ "$loaded" = 1 ] && cache_payload_ok; then
         input_oem=$CACHE_DIR/source/miui-services.jar; target_oem=$SOURCE_MIUI_PATH
       fi
     else
-      backend_note ACTIVE "verified legacy backend retained; clean source will be captured after a system change"
+      if [ -r "$B/pending" ]; then
+        backend_note MOUNTED "verified legacy framework mounted; waiting for boot acknowledgement; no further reboot needed"
+      else backend_note ACTIVE "verified legacy backend retained; clean source will be captured after a system change"; fi
       exit 0
     fi
   elif cache_source_ok && [ "$(cat "$B/quarantine" 2>/dev/null)" = "$generation" ]; then

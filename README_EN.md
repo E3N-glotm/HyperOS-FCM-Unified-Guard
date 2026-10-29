@@ -2,9 +2,9 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module with an independent Millet/FCM guard and static framework policies generated on the device from available system interfaces. Current version: **v0.4.0-alpha.1**. No FCM Live APK, LSPosed or Zygisk is required.
+A single Magisk module with an independent Millet/FCM guard and static framework policies generated on the device from available system interfaces. Current version: **v0.4.0-alpha.2**. No FCM Live APK, LSPosed or Zygisk is required.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.1/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.1/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
@@ -25,11 +25,11 @@ Unrestricted installation does not imply identical functionality on every ROM. S
 
 ## Installation and upgrades
 
-1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.1-static.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
+1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
 2. Back up `/data/adb/fcm_unified_guard/`. When migrating from Millet Guard, also preserve its package list and ownership records. Existing `packages.list` and `unified.conf` are retained during upgrades; legacy configuration is imported only when no current configuration exists.
 3. Install the ZIP in Magisk. Disable the duplicate legacy Millet Guard core. If FCM Live/LSPosed bridge features are enabled, disable the overlapping features to avoid duplicate policy handling.
-4. Put one managed package name per line in `/data/adb/fcm_unified_guard/packages.list`. Reboot normally and check status. If a newly generated framework cache is pending activation, load it on a subsequent normal reboot when convenient.
-5. Tap Magisk Action to inspect the core, FCM connection, exemptions and individual static capabilities.
+4. Put one managed package name per line in `/data/adb/fcm_unified_guard/packages.list`. After a fresh installation, reboot normally and wait for adaptation to finish and request a reboot, then reboot once more. An existing usable cache may avoid this generation step.
+5. After the final reboot, the module first reports that the framework is mounted and boot acknowledgement is pending, with no further reboot needed. Wait for the loaded status rather than rebooting repeatedly. Action inspects the core, FCM connection, exemptions and individual capabilities without regenerating healthy or pending caches.
 
 The module ID is `fcm_unified_guard`. Incompatibility, detection failures and generation failures do not automatically disable or uninstall the whole module or reboot the phone. A duplicate legacy core is reported as a conflict and duplicate writes are avoided; the user chooses which core to keep. Uninstalling the old module can revoke its ownership records, so retain migration backups.
 
@@ -41,7 +41,7 @@ The module ID is `fcm_unified_guard`. Incompatibility, detection failures and ge
 | 🟡 Partial/pending | Some interfaces are missing, diagnostics are unknown, adaptation is running or a new cache awaits a normal reboot |
 | 🔴 Attention | An observed disconnection, missing worker, generation/mount error, conflict or unconfirmed patch boot needs inspection |
 
-Gray feature entries indicate missing or unreadable OEM interfaces. Refresh the Magisk module list for the latest result, or tap Action to check immediately. Green indicates that current checks passed, not proven message delivery. Connection errors can also originate from the network or GMS.
+Gray feature entries indicate missing or unreadable OEM interfaces. Refresh the Magisk module list for the latest result, or tap Action to check immediately and retry failed adaptation. Status is tied to the current boot: a previous reboot request is discarded. Current-boot checking and mounted/awaiting-acknowledgement states mean wait, not reboot again. Green indicates that current checks passed, not proven message delivery. Connection errors can also originate from the network or GMS.
 
 ## After a system upgrade
 
@@ -55,7 +55,7 @@ Hashes are calculated dynamically on the device for cache identity, integrity an
 
 Status checks reuse the five-minute maintenance cycle and FCM health cache. The indicators add no resident process, AlarmManager wakeup or dedicated wake lock. The core shares log subscriptions and maintenance timers and filters unrelated settings events. Framework generation after system changes incurs temporary CPU and I/O work; it does not compile continuously.
 
-Validation includes 34 policy checks, strict bytecode contracts, per-feature degradation tests and 18 Linux installation/boot/status/OTA-rebuild scenarios. An isolated installation and generation against the current phone's stock framework produced 10/10 capabilities with individual ART checks passing. **This does not establish successful cold activation of this build or a real OTA.**
+Validation includes 34 policy checks, strict bytecode contracts, per-feature degradation tests and 30 Linux installation/boot/status/OTA-rebuild scenarios. An isolated installation and generation against the current phone's stock framework produced 10/10 capabilities with individual ART checks passing. **This does not establish successful cold activation of this build or a real OTA.**
 
 End-to-end push, cross-device testing and controlled battery A/B measurements remain pending. No measured battery-saving percentage is claimed; CPU/RSS samples cannot directly measure whole-device battery drain. See [current validation](static-patch/VALIDATION.md) and [legacy architecture records](docs/VALIDATION.md).
 
