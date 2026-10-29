@@ -2,7 +2,7 @@ name: Validate unified core and integrated bridge
 on:
   push:
     branches: [main, 'codex/**']
-    tags: ['v*']
+    tags: ['v0.2.*']
   pull_request:
   workflow_dispatch:
 permissions:
