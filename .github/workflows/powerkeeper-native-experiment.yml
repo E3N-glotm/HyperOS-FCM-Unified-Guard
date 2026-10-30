@@ -31,6 +31,10 @@ jobs:
         run: bash powerkeeper-runtime/fetch-deps.sh
       - name: Verify backported ART initialization ordering
         run: python3 powerkeeper-runtime/backport_lsplant_init_safety.py --verify
+      - name: Exercise ART callback publication barrier (host stress)
+        run: |
+          clang++ -std=c++23 -O2 -pthread -UNDEBUG -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" -Ipowerkeeper-runtime/third_party/lsplant/lsplant/src/main/jni/include -Ipowerkeeper-runtime/third_party/lsplant/lsplant/src/main/jni/include/utils powerkeeper-runtime/test-host-init-barrier.cpp -o /tmp/fcmu-art-init-test
+          for i in $(seq 1 40); do timeout 5 /tmp/fcmu-art-init-test; done
       - name: Build PowerKeeper-process-only Zygisk candidate
         run: |
           export PATH="$HOME/.local/bin:$PATH"
