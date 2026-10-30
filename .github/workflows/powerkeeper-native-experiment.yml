@@ -29,6 +29,8 @@ jobs:
           python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
       - name: Fetch licensed native sources and pin revisions in build evidence
         run: bash powerkeeper-runtime/fetch-deps.sh
+      - name: Verify backported ART initialization ordering
+        run: python3 powerkeeper-runtime/backport_lsplant_init_safety.py --verify
       - name: Build PowerKeeper-process-only Zygisk candidate
         run: |
           export PATH="$HOME/.local/bin:$PATH"

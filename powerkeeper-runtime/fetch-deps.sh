@@ -18,6 +18,9 @@ LSPLANT_PIN=b2f9279014091c83faac094c5fc7c5498261ace8
 git -C third_party/lsplant fetch --depth 1 origin "$LSPLANT_PIN"
 git -C third_party/lsplant checkout --detach "$LSPLANT_PIN"
 git -C third_party/lsplant submodule update --init --recursive --depth 1 lsplant/src/main/jni/external/dex_builder
+# Backport the October ART initialization safety ordering. Fail closed on mismatch.
+python3 backport_lsplant_init_safety.py
+python3 backport_lsplant_init_safety.py --verify
 clone_if_missing https://github.com/LSPosed/Dobby.git third_party/dobby
 clone_if_missing https://github.com/tukaani-project/xz-embedded.git third_party/xz-embedded
 curl -fLsS --retry 2 https://raw.githubusercontent.com/topjohnwu/zygisk-module-sample/master/module/jni/zygisk.hpp -o third_party/zygisk/zygisk.hpp
