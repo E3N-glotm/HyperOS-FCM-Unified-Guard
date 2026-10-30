@@ -4,6 +4,9 @@ import android.app.Application;
 import android.content.Context;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -20,6 +23,26 @@ public final class PowerKeeperRuntimeEntry {
     private static volatile boolean attached;
     private static String[] candidates = new String[0];
     private PowerKeeperRuntimeEntry() {}
+
+    // Experimental-only Java runtime audit. This entry class is not included
+    // in the shipped static Magisk baseline; no service or polling is used.
+    // Device-protected app-private storage is safe before CE unlock.
+    private static void experimentalAudit(Context context, String line) {
+        if (context == null || line == null) return;
+        try {
+            Context de = context.createDeviceProtectedStorageContext();
+            File dir = de.getFilesDir();
+            if (dir == null) return;
+            File out = new File(dir, "fcmu_pk_runtime_test.tsv");
+            if (out.isFile() && out.length() > 16384) return;
+            try (FileOutputStream stream = new FileOutputStream(out, true)) {
+                stream.write(line.getBytes(StandardCharsets.UTF_8));
+                stream.write('\n');
+            }
+        } catch (Throwable ignored) {
+            // Diagnostics must never change OEM application behavior.
+        }
+    }
 
     /** LSPlant Hook(target, owner, callback) returns backup Method or null. */
     private static native Method nativeHook(Method target, Object owner, Method callback);
@@ -49,16 +72,19 @@ public final class PowerKeeperRuntimeEntry {
         public Object callback(Object[] arguments) throws Throwable {
             if (backup == null || arguments == null || arguments.length != 2)
                 throw new IllegalStateException("invalid attach trampoline");
+            Context context = (Context) arguments[1];
+            experimentalAudit(context, "attach_callback_enter");
             final Object result;
             try { result = backup.invoke(arguments[0], arguments[1]); }
             catch (InvocationTargetException wrapped) { throw wrapped.getCause(); }
-            Context context = (Context) arguments[1];
+            experimentalAudit(context, "attach_backup_completed");
             if (!context.getPackageName().toLowerCase(java.util.Locale.ROOT).contains("powerkeeper"))
                 return result;
             List<String> names = new ArrayList<String>(PowerKeeperRuntimePolicy.defaultCandidates());
             for (String name : candidates) names.add(name);
             PowerKeeperRuntimePolicy.Report report =
                     PowerKeeperRuntimePolicy.install(context.getClassLoader(), names, new NativeInstaller());
+            experimentalAudit(context, "hooks_installed=" + report.installed() + "\n" + report.toTsv());
             for (java.util.Map.Entry<String,String> value : report.results().entrySet()) {
                 Log.i(TAG, value.getKey() + "=" + value.getValue());
             }
