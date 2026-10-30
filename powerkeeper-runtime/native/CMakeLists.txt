@@ -45,3 +45,11 @@ target_compile_definitions(fcmu_pk PRIVATE XZ_USE_CRC64)
 target_include_directories(fcmu_pk PRIVATE "${VENDOR}/zygisk" "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_options(fcmu_pk PRIVATE -Wall -Wextra -Wno-c99-extensions)
 target_link_libraries(fcmu_pk PRIVATE dobby lsplant_static dex_builder_static xz_static log dl)
+# This separate library is only for a disposable Android app_process test,
+# never for Zygisk packaging or startup on the user's primary device.
+add_library(fcmu_pk_selftest SHARED Bridge.cpp ArtSymbols.cpp)
+target_compile_definitions(fcmu_pk_selftest PRIVATE XZ_USE_CRC64 FCMU_ART_ISOLATED_TEST)
+target_include_directories(fcmu_pk_selftest PRIVATE "${VENDOR}/zygisk" "${CMAKE_CURRENT_LIST_DIR}")
+target_compile_options(fcmu_pk_selftest PRIVATE -Wall -Wextra -Wno-c99-extensions)
+target_link_libraries(fcmu_pk_selftest PRIVATE dobby lsplant_static dex_builder_static xz_static log dl)
+

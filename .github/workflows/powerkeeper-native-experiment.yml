@@ -41,11 +41,16 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/30.0.16248370"
           bash powerkeeper-runtime/build-native.sh
           file powerkeeper-runtime/build/native/libfcmu_pk.so
+          file powerkeeper-runtime/build/native/libfcmu_pk_selftest.so
+      - name: Build isolated Android ART init driver
+        run: python3 powerkeeper-runtime/build_init_test.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
       - uses: actions/upload-artifact@v4
         with:
           name: powerkeeper-zygisk-experimental-not-installable
           path: |
             powerkeeper-runtime/build/native/libfcmu_pk.so
+            powerkeeper-runtime/build/native/libfcmu_pk_selftest.so
+            powerkeeper-runtime/build/art-init-test.jar
             powerkeeper-runtime/build/powerkeeper-runtime.dex
             powerkeeper-runtime/dependency-versions.txt
           if-no-files-found: error

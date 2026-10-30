@@ -98,6 +98,8 @@ bool init_art(JNIEnv* env){
     cfg.art_symbol_resolver=[](std::string_view n)->void*{return symbols?symbols->exact(n):nullptr;};
     cfg.art_symbol_prefix_resolver=[](std::string_view p)->void*{return symbols?symbols->prefix(p):nullptr;};
     cfg.generated_class_name="FCMU_PK_";
+    cfg.generated_field_name="fcmuCallback";
+    cfg.generated_method_name="fcmuBridge";
     cfg.generated_source_name="FCMU";
     art_ready=lsplant::Init(env,cfg);
     if(!art_ready){msg(ANDROID_LOG_WARN,"LSPlant unavailable; PowerKeeper Hook disabled");symbols.reset();}
@@ -198,3 +200,12 @@ private:
     bool chosen_=false;
 };
 REGISTER_ZYGISK_MODULE(ScopedPowerKeeper)
+
+#ifdef FCMU_ART_ISOLATED_TEST
+// Explicit opt-in, isolated app_process-only JNI entry point. This library
+// MUST NOT be packaged in the Magisk module or installed as a Zygisk payload.
+extern "C" JNIEXPORT jint JNICALL Java_ArtInitSelfTest_runInit(JNIEnv* env, jclass) {
+    msg(ANDROID_LOG_INFO, "ART selftest: initializing LSPlant in disposable process");
+    return init_art(env) ? 1 : 0;
+}
+#endif

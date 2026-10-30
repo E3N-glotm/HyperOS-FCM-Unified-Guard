@@ -11,6 +11,6 @@ cmake -S native -B build/native -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
   -DANDROID_STL=c++_static
-cmake --build build/native --target fcmu_pk
+cmake --build build/native --target fcmu_pk fcmu_pk_selftest
 test -s build/native/libfcmu_pk.so
 echo "ZYGISK_BRIDGE_COMPILED (EXPERIMENTAL / NOT INSTALLED)"
