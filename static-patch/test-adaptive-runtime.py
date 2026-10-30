@@ -280,6 +280,30 @@ esac
   self.services.write_text("stock-v1");self.oem.write_text("oem-v1")
   summary=self.health()
   self.assertIn("🔴",summary);self.assertNotIn("框架已加载",summary)
+ def test_action_active_backend_reports_actual_cached_capabilities(self):
+  self.build();self.boot();self.script("service.sh")
+  (self.mod/"backend/last-capabilities.tsv").unlink(missing_ok=True)
+  result=self.script("action.sh")
+  self.assertEqual(self.state(),"ACTIVE")
+  self.assertIn("当前框架缓存:",result.stdout)
+  self.assertIn("ams.broadcast",result.stdout)
+  self.assertNotIn("capabilities.tsv unavailable; generation may have failed",result.stdout)
+  self.assertIn("历史记录，并非当前故障",result.stdout)
+  self.assertIn("框架10/10",(self.run/"health-summary.txt").read_text())
+ def test_action_report_uses_previous_generation_only_as_labelled_fallback(self):
+  self.build();self.boot();self.script("service.sh")
+  (self.cache()/"capabilities.tsv").unlink()
+  report=self.mod/"backend/last-capabilities.tsv"
+  report.write_text("ams.broadcast\tready\told-generated-only\n")
+  result=self.script("action.sh")
+  self.assertIn("上次生成记录（不代表当前已加载）",result.stdout)
+  self.assertIn("old-generated-only",result.stdout)
+ def test_action_probes_powerkeeper_before_health_report(self):
+  self.build();self.boot();self.script("service.sh")
+  result=self.script("action.sh")
+  self.assertIn("PowerKeeper 动态接口探测",result.stdout)
+  self.assertIn("POWERKEEPER",result.stdout)
+  self.assertIn("read-only APK probe:",result.stdout)
  def test_action_on_active_backend_keeps_generation(self):
   self.build();self.boot();self.script("service.sh")
   before=(self.mod/"backend/current").read_text();self.script("action.sh")
