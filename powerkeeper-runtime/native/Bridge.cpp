@@ -284,6 +284,11 @@ public:
         }
         std::string pk_processes=read_file(dir,"backend/powerkeeper-packages.list",4096);
         chosen_=match_process(process,pk_processes);
+        // Boot-loop protection is independent of the basic Magisk guard.
+        // post-fs-data may quarantine only the PowerKeeper runtime without
+        // disabling MILLET/FCM workers or the verified framework backend.
+        int quarantined=openat(dir,"backend/powerkeeper-hook.disable",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
+        if(quarantined>=0){close(quarantined);chosen_=false;}
         if(chosen_){
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
             // Restrict the optional diagnostics path to known valid package
