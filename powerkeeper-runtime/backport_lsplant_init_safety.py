@@ -108,6 +108,64 @@ def class_linker(src):
     return replace_once(src,old,"", "class_linker remove hook-phase JNI")
 
 
+
+def hook_helper(src):
+    # A thread that reaches a partially published ART callback waits for Init
+    # to finish. Reentry by the initializing thread remains permitted.
+    src = replace_once(src, "#include <array>\\n",
+        "#include <array>\\n#include <atomic>\\n#include <thread>\\n#include <utility>\\n",
+        "hook_helper includes")
+    src = replace_once(src, "struct HookHandler {\\n",
+        """struct HookHandler {
+private:
+    inline static std::atomic<std::thread::id> initializing_{};
+    static_assert(std::atomic<std::thread::id>::is_always_lock_free);
+public:
+    class InitScope {
+    public:
+        InitScope() { initializing_.store(std::this_thread::get_id(), std::memory_order_relaxed); }
+        InitScope(const InitScope&) = delete;
+        InitScope& operator=(const InitScope&) = delete;
+        ~InitScope() {
+            initializing_.store(std::thread::id{}, std::memory_order_release);
+            initializing_.notify_all();
+        }
+    };
+    static void WaitForInitialization() {
+        auto owner=initializing_.load(std::memory_order_acquire);
+        if (owner==std::thread::id{} || owner==std::this_thread::get_id()) return;
+        do {
+            initializing_.wait(owner,std::memory_order_acquire);
+            owner=initializing_.load(std::memory_order_acquire);
+        } while(owner!=std::thread::id{} && owner!=std::this_thread::get_id());
+    }
+""", "hook_helper InitScope")
+    point = "template <typename F>\\nconcept Backup"
+    adapter = """// Strongly typed callback trampoline; no JNI, mutex or dynamic allocations.
+template <auto Function> struct WaitedCallback;
+template <typename R, typename... Args, R(*Function)(Args...)>
+struct WaitedCallback<Function> {
+    static R invoke(Args... args) {
+        HookHandler::WaitForInitialization();
+        return Function(std::forward<Args>(args)...);
+    }
+};
+
+"""
+    src = replace_once(src,point,adapter+point,"hook_helper typed callback")
+    pattern = """                return HookerType {
+                    static_cast<decltype(HookerType::replace_)>(
+                        &F::template operator()<HookerType::operator()>)
+                };"""
+    replacement = """                constexpr auto callback = static_cast<decltype(HookerType::replace_)>(
+                        &F::template operator()<HookerType::operator()>);
+                return HookerType { &WaitedCallback<callback>::invoke };"""
+    if src.count(pattern)!=2:
+        raise RuntimeError(f"hook_helper expected both pointer branches, got {src.count(pattern)}")
+    src = src.replace(pattern,replacement)
+    return src
+
+
 def no_jni_while_suspended(src, filename):
     before = "static bool Init(JNIEnv *env, const HookHandler &handler) {"
     after = "static bool Init(bool java_debuggable, const HookHandler &handler) {"
@@ -136,6 +194,8 @@ def core(src):
                               art::gc::kCollectorTypeDebugger);
     ScopedSuspendAll suspended("FCMU LSPlant Init", false);
     // Do not call JNI between these guards and their destructors.
+    // Publish callback barrier only during ART internal hook installation.
+    HookHandler::InitScope init_scope;
     ArtMethod::InitHooks(handler);
     if (!Class::Init(handler)) return false;
     if (!ClassLinker::InitHooks(handler)) return false;
@@ -163,6 +223,7 @@ def main():
       "art/runtime/instrumentation.cxx":lambda s:no_jni_while_suspended(s,"instrumentation"),
       "art/runtime/jni/jni_id_manager.cxx":lambda s:no_jni_while_suspended(s,"jni_id_manager"),
       "lsplant.cc":core,
+      "include/utils/hook_helper.hpp":hook_helper,
     }
     if args.verify:
         data={p:(BASE/p).read_text(encoding="utf8") for p in rules}
@@ -171,6 +232,10 @@ def main():
         hooked=data["lsplant.cc"].split("ScopedSuspendAll suspended",1)[1].split("\nstd::tuple<jclass",1)[0]
         assert "JNI_" not in hooked and "IsJavaDebuggable(env)" not in hooked
         assert "InitHooks(handler)" in hooked
+        assert "HookHandler::InitScope init_scope" in hooked
+        helper=data["include/utils/hook_helper.hpp"]
+        assert "WaitedCallback<callback>::invoke" in helper
+        assert "WaitForInitialization()" in helper
         assert "JNI_FindClass" not in data["art/runtime/class_linker.cxx"].split("static bool InitHooks",1)[1]
         print("LSPLANT_INIT_ORDER_STATIC_VERIFICATION_PASS")
         return
