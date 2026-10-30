@@ -330,6 +330,11 @@ public:
 #endif
         if(chosen_ && env_){
             msg(ANDROID_LOG_INFO,"PowerKeeper entered Zygisk postAppSpecialize");
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+            // Marker is generated only by the native experimental build,
+            // not by arbitrary OEM DEX strings or production configuration.
+            detected.emplace_back("__FCMU_PK_EXPERIMENT_DIAGNOSTICS_ONLY__");
+#endif
             bool active=activate(env_,
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
                 trace_fd_
