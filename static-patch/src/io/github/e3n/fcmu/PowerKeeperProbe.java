@@ -68,6 +68,7 @@ public final class PowerKeeperProbe {
      }
      if(write && read)result[i]="present\trequest plus feedback read observed";
      else if(write)result[i]="variant\trequest observed; feedback verification not identified";
+     else result[i]="unknown\tno direct Greeze invoke found; OEM may use reflection/Binder proxies";
      continue;
     }
     for(Method method:c.getMethods()){

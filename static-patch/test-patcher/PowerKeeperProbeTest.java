@@ -26,6 +26,7 @@ public final class PowerKeeperProbeTest {
   check(state(newResult,4).equals("present"),"modern entry absent");
   check(state(newResult,1).equals("variant"),"different overload must not count as present");
   check(state(newResult,2).equals("missing"),"method absence incorrectly present");
+  check(state(newResult,5).equals("unknown"),"indirect/reflection Greeze call must not be a false missing");
   String doze="Lcom/xiaomi/powerkeeper/provider/GlobalFeatureConfigureHelper;";
   ClassDef another=new ImmutableClassDef(doze,1,"Ljava/lang/Object;",null,null,null,
     Collections.<Field>emptyList(),Arrays.asList(CapabilityTest.method(doze,"getDozeWhiteListApps","Ljava/util/List;","Landroid/os/Bundle;")));
