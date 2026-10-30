@@ -146,6 +146,48 @@ esac
  def test_disconnection_is_red_with_details(self):
   self.build();self.boot();self.assertIn("🔴",self.health("disconnected"))
   self.assertIn("connection disconnected",(self.run/"health-status.txt").read_text())
+ def test_cached_health_stale_connected_recovers_without_waiting_next_poll(self):
+  self.build();self.boot();self.script("service.sh")
+  cache=self.run/"fcm-observed.state"
+  cache.write_text("unknown 1\n")
+  self.script("bin/health_status.sh","--cached")
+  self.assertIn("FCM在线",(self.run/"health-summary.txt").read_text())
+  self.assertIn("GREEN\tFCM",(self.run/"health-status.txt").read_text())
+  self.assertEqual(cache.read_text(),"unknown 1\n","health check must not overwrite guard-owned cache")
+ def test_cached_health_stale_disconnected_is_not_false_green(self):
+  self.build();self.boot();self.script("service.sh")
+  cache=self.run/"fcm-observed.state";cache.write_text("connected 1\n")
+  self.env["MODE"]="disconnected"
+  self.script("bin/health_status.sh","--cached")
+  self.assertIn("FCM断开",(self.run/"health-summary.txt").read_text())
+  self.assertIn("RED\tFCM",(self.run/"health-status.txt").read_text())
+ def test_cached_health_no_gms_diagnostics_stays_unknown(self):
+  self.build();self.boot();self.script("service.sh")
+  cache=self.run/"fcm-observed.state";cache.write_text("connected 1\n")
+  self.tool("dumpsys",r"""
+case "$1" in
+ activity) :;;
+ greezer) echo 'mGmsLimitEnabled : false';;
+esac
+""")
+  self.script("bin/health_status.sh","--cached")
+  self.assertIn("FCM未知",(self.run/"health-summary.txt").read_text())
+  self.assertIn("YELLOW\tFCM",(self.run/"health-status.txt").read_text())
+ def test_cached_health_recent_observation_avoids_extra_probe(self):
+  self.build();self.boot();self.script("service.sh")
+  cache=self.run/"fcm-observed.state"
+  now=int(__import__("time").time());cache.write_text(f"connected {now}\n")
+  counter=self.run/"fcm-extra-probe"
+  self.env["TEST_PROBE_COUNTER"]=str(counter)
+  self.tool("dumpsys",r"""
+case "$1" in
+ activity) echo query >> "$TEST_PROBE_COUNTER"; echo 'Is client connected: false';;
+ greezer) echo 'mGmsLimitEnabled : false';;
+esac
+""")
+  self.script("bin/health_status.sh","--cached")
+  self.assertIn("FCM在线",(self.run/"health-summary.txt").read_text())
+  self.assertFalse(counter.exists(),"fresh cache must not run a second GMS query")
  def test_ota_rebuilds_automatically_without_reinstall(self):
   self.build();old=(self.mod/"backend/current").read_text()
   self.services.write_text("stock-v2");self.oem.write_text("oem-v2")
