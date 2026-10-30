@@ -1,4 +1,6 @@
-# HyperOS FCM Unified Guard v0.4.0-alpha.6
+# HyperOS FCM Unified Guard v0.4.0-alpha.6（静态核心组件说明）
+
+> **说明（2026-10-30）**：本目录记录 **v0.4.0-alpha.6 静态核心子组件**，不包含 Zygisk。GitHub 当前 [Latest v0.4.0-alpha.7](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) 是在静态核心基础上再集成 PowerKeeper ARM64 Zygisk 原生专项的**单一 Magisk 模块**。下文“无 Zygisk / 尚未发布 Hook”的描述只针对本静态子组件，不能代表最新集成版本。新版安装说明请阅读仓库根目录 [README](../README.md)。
 
 单个 Magisk 模块，保留 Millet/FCM 基础守护，并按当前框架可用能力生成静态策略；无需 FCM Live APK、LSPosed 或 Zygisk。
 
