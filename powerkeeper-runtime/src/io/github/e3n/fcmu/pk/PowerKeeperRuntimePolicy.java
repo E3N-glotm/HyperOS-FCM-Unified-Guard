@@ -72,9 +72,18 @@ public final class PowerKeeperRuntimePolicy {
                 "com.xiaomi.powerkeeper.provider.GlobalFeatureConfigureHelper");
     }
 
-    /** Called once when the actual PowerKeeper app ClassLoader is available.
-     * No polling, background thread, service restart or APK replacement. */
+    /** No-flag entrypoint: vendor DNS/firewall candidate stays disabled. */
     public static Report install(ClassLoader loader, Iterable<String> candidates, Installer hooks) {
+        return install(loader, candidates, hooks, -1, false);
+    }
+
+    /** Optional experimental DNS guard: callers must verify the current OEM
+     * method bytecode semantics AND resolve the installed GMS UID. Signature
+     * presence alone must never enable this policy; it is never used by the
+     * production bridge without explicit successful external verification.
+     * No ROM/device-version allowlist and no hard-coded GMS UID. */
+    public static Report install(ClassLoader loader, Iterable<String> candidates, Installer hooks,
+                                 int verifiedGmsUid, boolean verifiedGmsDnsSemantics) {
         Report report = new Report();
         if (loader == null || hooks == null) {
             report.put("pk.runtime", "unavailable");
@@ -124,6 +133,33 @@ public final class PowerKeeperRuntimePolicy {
                             return original.call(receiver, updated);
                         }
                     };
+                } else if (owner.equals("firewall") &&
+                        method.getName().equals("setGmsDnsBlockerState") &&
+                        Modifier.isStatic(method.getModifiers()) &&
+                        method.getParameterTypes().length == 2 &&
+                        method.getParameterTypes()[0] == int.class &&
+                        method.getParameterTypes()[1] == boolean.class &&
+                        method.getReturnType() == void.class) {
+                    feature = "pk.firewall.gmsDnsUidRule";
+                    if (!verifiedGmsDnsSemantics || verifiedGmsUid < 10000) {
+                        report.put(feature, "candidate_unverified");
+                        continue;
+                    }
+                    interceptor = new Interceptor() {
+                        @Override public Object onInvoke(Object receiver, Object[] args, Proceed original) throws Throwable {
+                            // Preserve all other UIDs, all non-deny actions, and
+                            // the OEM method's own side effects. Never write a
+                            // global firewall / DNS policy or change GMS UID.
+                            if (args == null || args.length != 2 ||
+                                    !(args[0] instanceof Integer) || !(args[1] instanceof Boolean) ||
+                                    ((Integer)args[0]).intValue() != verifiedGmsUid ||
+                                    !((Boolean)args[1]).booleanValue())
+                                return original.call(receiver, args);
+                            Object[] narrowed = args.clone();
+                            narrowed[1] = Boolean.FALSE;
+                            return original.call(receiver, narrowed);
+                        }
+                    };
                 } else if (owner.equals("doze") && method.getName().equals("getDozeWhiteListApps") &&
                         method.getParameterTypes().length == 1 &&
                         method.getParameterTypes()[0].getName().equals("android.os.Bundle") &&
@@ -158,7 +194,7 @@ public final class PowerKeeperRuntimePolicy {
                 "pk.gms.updateGmsAlarm", "pk.gms.updateGmsNetWork",
                 "pk.gms.updateGoogleReletivesWakelock",
                 "pk.gms.updateFrameworkGmsNetStatus",
-                "pk.firewall.gmsChain", "pk.doze.whitelist")) {
+                "pk.firewall.gmsChain", "pk.firewall.gmsDnsUidRule", "pk.doze.whitelist")) {
             if (!report.results.containsKey(f)) report.put(f, "unavailable");
         }
         return report;
