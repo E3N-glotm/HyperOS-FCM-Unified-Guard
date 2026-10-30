@@ -24,22 +24,37 @@ done
 if [ "$core_ok" = 1 ]; then emit GREEN CORE "three guard workers running"; else
   emit RED CORE "guard worker missing or legacy conflict; see startup-status.txt"
 fi
+# Guard poll (120s) and Magisk status refresh (300s) run independently.
+# The status refresh may land immediately BEFORE the next successful FCM
+# observation and publish "FCM unknown" for five more minutes. If the cached
+# observation is stale/unknown, make one bounded direct probe during this
+# existing status refresh. Normal (fresh) cache adds zero dumpsys calls.
+# The guard alone owns fcm-observed.state: do not clobber an observation from
+# the concurrent guard poll with a failed/slow UI probe.
 observed=unknown stamp=0
 read -r observed stamp 2>/dev/null < "$RUNDIR/fcm-observed.state" || true
 now=$(date +%s)
 case "$stamp" in ''|*[!0-9]*) stamp=0;; esac
-if [ "${1:-}" = --fresh ]; then
+need_probe=0
+case "$observed" in connected|disconnected) :;; *) need_probe=1;; esac
+if [ "$stamp" -eq 0 ] || [ "$stamp" -gt "$now" ] || [ $((now-stamp)) -gt 300 ]; then
+  observed=unknown
+  need_probe=1
+fi
+[ "${1:-}" != --fresh ] || need_probe=1
+if [ "$need_probe" = 1 ]; then
   BB=/data/adb/magisk/busybox
   if [ -x "$BB" ]; then
     line=$("$BB" timeout 5 dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null | grep -m1 'Is client connected:' || true)
   else
     line=$(timeout 5 dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null | grep -m1 'Is client connected:' || true)
   fi
-  case "$line" in *true*) observed=connected;; *false*) observed=disconnected;; *) observed=unknown;; esac
-  stamp=$now
-  printf '%s %s\n' "$observed" "$stamp" > "$RUNDIR/fcm-observed.state"
+  case "$line" in
+    *"Is client connected: true"*) observed=connected;;
+    *"Is client connected: false"*) observed=disconnected;;
+    *) observed=unknown;;
+  esac
 fi
-[ $((now-stamp)) -le 300 ] 2>/dev/null || observed=unknown
 case "$observed" in
  connected) emit GREEN FCM "GcmService reports connected; real message delivery remains unverified";;
  disconnected) emit RED FCM "connection disconnected; may be network/GMS; recovery core remains running";;
