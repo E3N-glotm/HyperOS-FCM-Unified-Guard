@@ -39,6 +39,7 @@ public final class PowerKeeperProbeTest {
    }
    String[] split=PowerKeeperProbe.scan(apk);
    check(state(split,1).equals("present")&&state(split,9).equals("present"),"multi-DEX scan lost a feature");
+   check(state(split,5).equals("unknown"),"multi-DEX merge falsely converted reflection/indirect call into missing");
   }finally{apk.delete();}
   String[] none=PowerKeeperProbe.inspect(Collections.<ClassDef>emptyList());
   check(PowerKeeperProbe.report(none,0,1).contains("pk.apk\tunknown"),"failed APK must stay unknown");
