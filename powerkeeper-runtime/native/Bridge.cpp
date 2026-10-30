@@ -176,8 +176,14 @@ public:
         if(!ptr)return;
         std::string process(ptr);
         env_->ReleaseStringUTFChars(args->nice_name,ptr);
+        const bool diagnostic=process.find("powerkeeper")!=std::string::npos;
+        if(diagnostic) msg(ANDROID_LOG_INFO,"Target-like process reached Zygisk preAppSpecialize");
         int dir=api_->getModuleDir();
-        if(dir<0){api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);return;}
+        if(dir<0){
+            if(diagnostic) msg(ANDROID_LOG_WARN,"Target-like process could not obtain module dir");
+            api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+            return;
+        }
         std::string pk_processes=read_file(dir,"backend/powerkeeper-packages.list",4096);
         chosen_=match_process(process,pk_processes);
         if(chosen_){
@@ -186,13 +192,21 @@ public:
             detected=read_classes(read_file(dir,"backend/powerkeeper-capabilities.tsv",65536));
         }
         close(dir);
+        if(diagnostic){
+            if(!chosen_) msg(ANDROID_LOG_WARN,"PowerKeeper target rejected by package-name contract");
+            else if(dex.empty()) msg(ANDROID_LOG_WARN,"PowerKeeper selected but bridge DEX missing");
+            else msg(ANDROID_LOG_INFO,"PowerKeeper target chosen with bridge DEX");
+        }
         if(!chosen_ || dex.empty()) {
             chosen_=false;
             api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
     }
     void postAppSpecialize(const zygisk::AppSpecializeArgs*) override {
-        if(chosen_ && env_){(void)activate(env_);}
+        if(chosen_ && env_){
+            msg(ANDROID_LOG_INFO,"PowerKeeper entered Zygisk postAppSpecialize");
+            (void)activate(env_);
+        }
     }
 private:
     zygisk::Api* api_=nullptr;
