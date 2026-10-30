@@ -101,6 +101,52 @@ esac
  def health(self,mode="full"):
   self.env["MODE"]=mode;self.script("bin/health_status.sh","--fresh")
   return (self.run/"health-summary.txt").read_text()
+ def test_hyperos3_missing_events_is_yellow_not_false_core_crash(self):
+  # logcat --regex absent: event listener can be missing, but the 120s
+  # FCM + 300s reconcile maintenance worker must remain recognized.
+  self.build();self.boot();self.script("service.sh")
+  (self.run/"events.pid").unlink()
+  self.health()
+  report=(self.run/"health-status.txt").read_text()
+  self.assertIn("YELLOW\tCORE",report)
+  self.assertIn("optional event listeners missing: events",report)
+  self.assertNotIn("RED\tCORE",report)
+
+ def test_missing_fcm_maintenance_remains_red(self):
+  self.build();self.boot();self.script("service.sh")
+  (self.run/"maintenance.pid").unlink()
+  self.health()
+  report=(self.run/"health-status.txt").read_text()
+  self.assertIn("RED\tCORE",report)
+  self.assertIn("FCM maintenance worker missing",report)
+
+ def test_core_legacy_conflict_not_hidden_by_stale_pid_records(self):
+  self.build();self.boot();self.script("service.sh")
+  (self.run/"startup-status.txt").write_text("CONFLICT: Millet Guard active\n")
+  self.health()
+  self.assertIn("RED\tCORE", (self.run/"health-status.txt").read_text())
+  self.assertIn("legacy module conflict", (self.run/"health-status.txt").read_text())
+
+ def test_powerkeeper_subprocess_discovery_is_not_a_false_injection_claim(self):
+  # Host /proc maps is readable but does not contain the module path.
+  # A valid OEM package:service process must be recognized without
+  # falsely asserting a native Hook from package/DEX presence alone.
+  (self.mod/"zygisk").mkdir()
+  (self.mod/"zygisk/arm64-v8a.so").write_bytes(b"test native placeholder")
+  (self.mod/"backend").mkdir(exist_ok=True)
+  (self.mod/"backend/powerkeeper-packages.list").write_text("com.miui.powerkeeper\n")
+  self.env["TEST_PK_PROCESS_PID"]=str(os.getpid())
+  self.tool("pidof", "exit 1\n")
+  self.tool("ps", """if [ "$1" = -A ]; then
+    printf 'PID NAME\n%s com.miui.powerkeeper:remote\n' "$TEST_PK_PROCESS_PID"
+   fi
+  """)
+  self.health()
+  report=(self.run/"health-status.txt").read_text()
+  self.assertIn("YELLOW\tPOWERKEEPER",report)
+  self.assertIn("OEM process exists but native mapping unverified",report)
+  self.assertNotIn("native library mapped in OEM process",report)
+
  def test_powerkeeper_missing_apk_does_not_disable_fcm(self):
   self.tool("pm","exit 1\n")
   self.script("bin/powerkeeper_probe.sh")

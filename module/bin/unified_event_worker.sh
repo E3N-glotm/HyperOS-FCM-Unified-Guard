@@ -14,15 +14,33 @@ cleanup_events() {
 }
 trap 'cleanup_events; exit 0' HUP INT TERM
 trap cleanup_events EXIT
-logcat --help 2>&1 | grep -q -- '--regex' || exit 0
+# HyperOS 3 and OEM-shipped logcat builds may omit --regex even when
+# tag-based filtering is supported. Exiting here used to leave a stale
+# events.pid and a permanent red CORE status. Keep the event worker alive
+# using the same *two buffers and two tags* with shell-side event checks.
+# No extra watcher, poll, wakelock or broad unfiltered subscription.
+if logcat --help 2>&1 | grep -q -- '--regex'; then
+  use_regex=1
+  printf '%s\n' 'event logcat: regex + tag filtering' > "$RUNDIR/events-worker.mode"
+else
+  use_regex=0
+  printf '%s\n' 'event logcat: tag-only compatibility fallback (OEM lacks --regex)' > "$RUNDIR/events-worker.mode"
+fi
 # One filtered subscription, two buffers, no dedicated wakeup or wake lock.
 # A FIFO keeps dispatch in this process rather than a pipeline subshell.
 mkfifo -m 600 "$FIFO" || exit 1
 last_alarm=0
 while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
-  logcat -b main -b events -v brief -T 1 \
-    --regex='sourcePkg=com[.]google[.]android[.]gms([ ,}]|$)|stop [A-Za-z0-9._]+ due to SwipeUpClean' \
-    -s whetstone.activity:I am_kill:I '*:S' > "$FIFO" 2>/dev/null &
+  if [ "$use_regex" = 1 ]; then
+    logcat -b main -b events -v brief -T 1 \
+      --regex='sourcePkg=com[.]google[.]android[.]gms([ ,}]|$)|stop [A-Za-z0-9._]+ due to SwipeUpClean' \
+      -s whetstone.activity:I am_kill:I '*:S' > "$FIFO" 2>/dev/null &
+  else
+    # Logcat still filters on the device by *tag and priority*. The existing
+    # case arms below reject unrelated records before doing any work.
+    logcat -b main -b events -v brief -T 1 \
+      -s whetstone.activity:I am_kill:I '*:S' > "$FIFO" 2>/dev/null &
+  fi
   reader=$!
   # The parent owns this child and reaps it on restart/termination.
   while IFS= read -r line; do
