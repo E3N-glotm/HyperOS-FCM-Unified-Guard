@@ -40,8 +40,12 @@ target_include_directories(xz_static PUBLIC
     "${XZ}/linux/include/linux"
     "${XZ}/userspace"
 )
+option(FCMU_PK_EXPERIMENT_DIAGNOSTICS "Enable scoped pre/post Zygisk trace in experimental binary only" OFF)
 add_library(fcmu_pk SHARED Bridge.cpp ArtSymbols.cpp)
 target_compile_definitions(fcmu_pk PRIVATE XZ_USE_CRC64)
+if(FCMU_PK_EXPERIMENT_DIAGNOSTICS)
+    target_compile_definitions(fcmu_pk PRIVATE FCMU_PK_EXPERIMENT_DIAGNOSTICS)
+endif()
 target_include_directories(fcmu_pk PRIVATE "${VENDOR}/zygisk" "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_options(fcmu_pk PRIVATE -Wall -Wextra -Wno-c99-extensions)
 target_link_libraries(fcmu_pk PRIVATE dobby lsplant_static dex_builder_static xz_static log dl)
