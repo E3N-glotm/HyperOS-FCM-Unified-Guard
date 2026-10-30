@@ -97,16 +97,24 @@ public final class PowerKeeperRuntimeEntry {
             auditContext = context;
             if (!context.getPackageName().toLowerCase(java.util.Locale.ROOT).contains("powerkeeper"))
                 return result;
-            List<String> names = new ArrayList<String>(PowerKeeperRuntimePolicy.defaultCandidates());
-            for (String name : candidates) names.add(name);
-            PowerKeeperRuntimePolicy.Report report =
-                    PowerKeeperRuntimePolicy.install(context.getClassLoader(), names, new NativeInstaller());
-            experimentalAudit(context, "hooks_installed=" + report.installed() + "\n" + report.toTsv());
-            for (java.util.Map.Entry<String,String> value : report.results().entrySet()) {
-                Log.i(TAG, value.getKey() + "=" + value.getValue());
+            // OEM ClassLoader/reflection may fail on an untested ROM. These
+            // optional hooks must never crash PowerKeeper after its original
+            // Application.attach completed. Fail open, retaining base guard.
+            try {
+                List<String> names = new ArrayList<String>(PowerKeeperRuntimePolicy.defaultCandidates());
+                for (String name : candidates) names.add(name);
+                PowerKeeperRuntimePolicy.Report report =
+                        PowerKeeperRuntimePolicy.install(context.getClassLoader(), names, new NativeInstaller());
+                experimentalAudit(context, "hooks_installed=" + report.installed() + "\n" + report.toTsv());
+                for (java.util.Map.Entry<String,String> value : report.results().entrySet()) {
+                    Log.i(TAG, value.getKey() + "=" + value.getValue());
+                }
+                Log.i(TAG, "PowerKeeper hooks installed=" + report.installed()
+                        + " (runtime behavior unverified)");
+            } catch (Throwable unsupportedRom) {
+                experimentalAudit(context, "optional_hook_install_failed");
+                Log.w(TAG, "Optional PowerKeeper hooks unavailable; base FCM guard unaffected", unsupportedRom);
             }
-            // Never claim 10/10 framework implies these independent hooks work.
-            Log.i(TAG, "PowerKeeper hooks installed=" + report.installed() + " (runtime behavior unverified)");
             return result;
         }
     }
