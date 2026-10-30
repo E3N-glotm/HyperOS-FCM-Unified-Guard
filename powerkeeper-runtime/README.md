@@ -46,6 +46,11 @@ GitHub 的 powerkeeper-native-experiment 工作流仅能手动触发，
 源码及构建时的依赖版本写入 dependency-versions.txt。即使 native 构建成功，
 也不代表已通过真实 ART/PowerKeeper/耗电验收，因此不能混入正式版。
 
+为解决 2026 年 9 月后 LSPlant 构建依赖的 named std module，
+当前实验构建锁定其 2026-09-02 的特定源码提交。该提交尚未包含
+10 月后续的 ART 初始化死锁修复，**不得在真机上直接激活此版本**。
+后续必须合入相应修复或切换至兼容最新 libcxx Prefab 的完整构建方式。
+
 ## 构建与测试
 
 从仓库根目录执行：
