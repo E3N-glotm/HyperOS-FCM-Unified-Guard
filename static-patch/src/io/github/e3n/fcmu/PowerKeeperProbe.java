@@ -89,6 +89,7 @@ public final class PowerKeeperProbe {
   for(int i=0;i<overall.length;i++){
    if(part[i].startsWith("present\t"))overall[i]=part[i];
    else if(part[i].startsWith("variant\t") && !overall[i].startsWith("present\t"))overall[i]=part[i];
+   else if(part[i].startsWith("unknown\t") && overall[i].startsWith("missing\t"))overall[i]=part[i];
   }
  }
  static String[] scan(File file)throws Exception {
