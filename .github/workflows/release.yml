@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           for file in module/*.sh module/bin/*.sh module/bin/bridgectl; do sh -n "$file"; done
-          for file in tests/test_reconcile_lock.sh tests/test_fcm_guard_policy.sh tests/test_scope_boundaries.sh tests/test_unified_policy.sh tests/test_fcm_runtime.sh tests/test_worker_identity.sh tests/test_migration_safety.sh tests/test_settings_fail_closed.sh tests/test_worker_stdin.sh tests/test_settings_trailing_reconcile.sh; do sh "$file"; done
+          for file in tests/test_reconcile_lock.sh tests/test_fcm_guard_policy.sh tests/test_scope_boundaries.sh tests/test_unified_policy.sh tests/test_fcm_runtime.sh tests/test_worker_identity.sh tests/test_migration_safety.sh tests/test_settings_fail_closed.sh tests/test_worker_stdin.sh tests/test_settings_trailing_reconcile.sh tests/test_hyperos3_logcat_fallback.sh; do sh "$file"; done
       - name: Build and verify distribution
         shell: bash
         run: |
