@@ -19,6 +19,9 @@ namespace {
 constexpr const char* kTag="FCMU-PK";
 std::vector<std::uint8_t> dex;
 std::vector<std::string> detected;
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+std::string private_diagnostic_file;
+#endif
 std::unique_ptr<ArtSymbols> symbols;
 bool art_ready=false;
 
@@ -35,6 +38,26 @@ void stage_trace(int fd,const char* step) {
     // Avoid SIGPIPE if a Companion is unavailable or the socket closes early.
     (void)send(fd,step,length,MSG_NOSIGNAL);
     (void)send(fd,"\n",1,MSG_NOSIGNAL);
+}
+// Post-specialize fallback. App-private DE storage is visible in the app's
+// isolated mount namespace and writable under its own system_app SELinux
+// domain. This is test-only, bounded, and never touches an OEM configuration.
+void app_stage_trace(const char* step) {
+    if(private_diagnostic_file.empty() || !step)return;
+    std::size_t length=strnlen(step,160);
+    if(length==0 || length>=160)return;
+    int fd=open(private_diagnostic_file.c_str(),
+                O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(fd<0)return;
+    struct stat st{};
+    if(fstat(fd,&st)!=0 || st.st_size>16384){close(fd);return;}
+    (void)write(fd,step,length);
+    (void)write(fd,"\n",1);
+    close(fd);
+}
+void post_stage_trace(int root_companion_fd,const char* step) {
+    app_stage_trace(step);
+    stage_trace(root_companion_fd,step);
 }
 void companion_trace(int client) {
     constexpr char path[]="/data/adb/fcmu_pk_experiment/zygisk-stage.tsv";
@@ -165,23 +188,23 @@ jclass from_loader(JNIEnv* env,jobject loader,const char* name){
 bool activate(JNIEnv* env,int trace_fd){
     (void)trace_fd;
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-    stage_trace(trace_fd,"activate entered");
+    post_stage_trace(trace_fd,"activate entered");
 #endif
     if(dex.empty()){
         msg(ANDROID_LOG_WARN,"Java bridge DEX is empty; skipping ART init");
         return false;
     }
     #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-    stage_trace(trace_fd,"ART init beginning");
+    post_stage_trace(trace_fd,"ART init beginning");
     #endif
     if(!init_art(env)){
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-        stage_trace(trace_fd,"ART init failed");
+        post_stage_trace(trace_fd,"ART init failed");
 #endif
         return false;
     }
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-    stage_trace(trace_fd,"ART init succeeded");
+    post_stage_trace(trace_fd,"ART init succeeded");
 #endif
     msg(ANDROID_LOG_INFO,"ART init succeeded; preparing Java bridge");
     jbyteArray input=env->NewByteArray(static_cast<jsize>(dex.size()));
@@ -223,7 +246,7 @@ bool activate(JNIEnv* env,int trace_fd){
     jboolean success=env->CallStaticBooleanMethod(cls,prepare,classes);
     bool failed=clear_error(env);
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-    stage_trace(trace_fd,failed?"Java bridge JNI exception":success?"attach hook prepared":"attach hook unavailable");
+    post_stage_trace(trace_fd,failed?"Java bridge JNI exception":success?"attach hook prepared":"attach hook unavailable");
 #endif
     msg(failed || !success ? ANDROID_LOG_WARN : ANDROID_LOG_INFO,
         failed || !success ? "PowerKeeper hook bridge unavailable; FCM core independent"
@@ -262,6 +285,15 @@ public:
         std::string pk_processes=read_file(dir,"backend/powerkeeper-packages.list",4096);
         chosen_=match_process(process,pk_processes);
         if(chosen_){
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+            // Restrict the optional diagnostics path to known valid package
+            // spellings, not arbitrary process strings or a device allowlist.
+            std::string package=process.substr(0,process.find(':'));
+            bool safe=package.size()<=128 && !package.empty() &&
+                      package.find("..")==std::string::npos &&
+                      package.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._")==std::string::npos;
+            if(safe)private_diagnostic_file="/data/user_de/0/"+package+"/fcmu_pk_stage_test.txt";
+#endif
             auto contents=read_file(dir,"powerkeeper-runtime.dex",2*1024*1024);
             dex.assign(contents.begin(),contents.end());
             detected=read_classes(read_file(dir,"backend/powerkeeper-capabilities.tsv",65536));
@@ -288,6 +320,9 @@ public:
     }
     void postAppSpecialize(const zygisk::AppSpecializeArgs*) override {
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+        // The first record must precede any Companion connection attempt,
+        // so a blocked/failed cross-UID IPC cannot hide this callback.
+        if(chosen_)app_stage_trace("postAppSpecialize entered");
         // The pre-specialize Companion socket was intentionally closed;
         // establish a fresh companion from this app security context.
         if(chosen_ && api_)trace_fd_=api_->connectCompanion();
@@ -304,7 +339,7 @@ public:
             );
             (void)active;
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-            stage_trace(trace_fd_,active?"bridge prepared":"bridge failed or not installed");
+            post_stage_trace(trace_fd_,active?"bridge prepared":"bridge failed or not installed");
 #endif
         }
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
