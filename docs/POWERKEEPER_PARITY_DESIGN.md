@@ -45,3 +45,7 @@
 - 出现 BootLoop、PowerKeeper Crash、消息到达率降低或 CPU/电量显著恶化，自动撤销实验模块并恢复前一稳定包；正式版不得混入尚未通过运行时验证的候选。
 
 **当前结论：** 不启用未验证的第 11 项下游静态变更。正式运行保留 v0.4.0-alpha.3、核心 10/10；本设计仅为后续上游精准等效实现的技术依据。
+
+## 2026-10-30 跨 ROM 兼容实施第一步：只读接口探测器
+
+新增 `PowerKeeperProbe.java` 与 `bin/powerkeeper_probe.sh`：不根据 pudding、SDK 或 ROM Hash 截断，动态从包管理器获取 APK 路径并扫描所有 DEX；对每项旧版功能报告存在、签名变化、缺失或不可判断。实际接口缺失只导致该项降级，不阻断 Magisk 核心；没有 PowerKeeper APK 时也是独立 core-only，而不是安装失败。扫描只在手动“操作”触发，五分钟状态检查不扫描 APK，不增加常驻耗电。该版本**不包含实际 PowerKeeper Hook**，下游强制 false 的 11/11 实验保留为 Draft，不进入发行版。

@@ -62,6 +62,13 @@ case "$1" in
   [ "$2" = - ] || printf 'patched:%s\n' "$(cat "$2")" > "$4/miui-services.jar"
   [ "$MODE" != race ] || echo changed-during-build > "$TEST_SERVICES"
   ;;
+ io.github.e3n.fcmu.PowerKeeperProbe)
+  shift
+  [ "$1" = "$TEST_PK_APK" ] || exit 7
+  printf 'pk.apk\tpresent\tinspectable_apks=1;failed=0\n'
+  printf 'pk.gms.framework\tpresent\tverified signature only\n'
+  printf 'pk.equivalence\tunverified\tno hook installed\n'
+  ;;
  io.github.e3n.fcmu.Verify)
   shift
   if [ "$1" = --adaptive ] && [ "$MODE" = art-missing ] && grep -q '^ams.broadcast.ready' "$2"; then
@@ -94,6 +101,24 @@ esac
  def health(self,mode="full"):
   self.env["MODE"]=mode;self.script("bin/health_status.sh","--fresh")
   return (self.run/"health-summary.txt").read_text()
+ def test_powerkeeper_missing_apk_does_not_disable_fcm(self):
+  self.tool("pm","exit 1\n")
+  self.script("bin/powerkeeper_probe.sh")
+  diag=(self.mod/"backend/powerkeeper-capabilities.tsv").read_text()
+  self.assertIn("pk.apk\tunknown",diag)
+  self.assertIn("pk.equivalence\tunverified",diag)
+  self.assertFalse((self.mod/"disable").exists())
+  self.assertFalse((self.mod/"remove").exists())
+ def test_powerkeeper_dynamic_apk_is_detected_without_rom_gates(self):
+  path=self.root/"vendor-app"/"PowerKeeper.apk";path.parent.mkdir(parents=True)
+  path.write_text("sample")
+  self.env["TEST_PK_APK"]=str(path)
+  self.tool("pm",'''case "$1" in path) echo "package:$TEST_PK_APK";; esac\n''')
+  self.script("bin/powerkeeper_probe.sh")
+  diag=(self.mod/"backend/powerkeeper-capabilities.tsv").read_text()
+  self.assertIn("pk.gms.framework\tpresent",diag)
+  self.assertIn("pk.equivalence\tunverified",diag)
+  self.assertFalse((self.mod/"disable").exists())
  def test_install_missing_vm_and_oem_succeeds(self):
   (self.bin/"dalvikvm64").unlink();self.oem.unlink();self.install()
   self.assertFalse((self.mod/"disable").exists());self.assertTrue((self.run/"packages.list").exists())

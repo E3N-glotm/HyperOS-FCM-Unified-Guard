@@ -27,7 +27,7 @@ def main():
         if d.exists(): shutil.rmtree(d)
         d.mkdir(parents=True)
     package = ROOT/"src/io/github/e3n/fcmu"
-    run([javac, "--release", "8", "-cp", os.pathsep.join(map(str, libs)), "-d", classes, package/"Patcher.java", package/"Adaptive.java"])
+    run([javac, "--release", "8", "-cp", os.pathsep.join(map(str, libs)), "-d", classes, package/"Patcher.java", package/"Adaptive.java", package/"PowerKeeperProbe.java"])
     run([javac, "--release", "8", "-cp", platforms[-1], "-d", policy, package/"StaticPolicy.java"])
     run([java, "-cp", d8s[-1], "com.android.tools.r8.D8", "--min-api", "26", "--lib", platforms[-1], "--output", out/"policy.jar", *policy.rglob("*.class")])
     with zipfile.ZipFile(out/"policy.jar") as z:
