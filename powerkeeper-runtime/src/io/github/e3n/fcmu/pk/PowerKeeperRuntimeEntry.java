@@ -11,6 +11,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Entry point intended for an optional, PowerKeeper-process-only Zygisk ART
@@ -22,6 +23,7 @@ public final class PowerKeeperRuntimeEntry {
     private static final String TAG = "FCMU-PowerKeeper";
     private static volatile boolean attached;
     private static String[] candidates = new String[0];
+    private static volatile Context auditContext;
     private PowerKeeperRuntimeEntry() {}
 
     // Experimental-only Java runtime audit. This entry class is not included
@@ -78,6 +80,7 @@ public final class PowerKeeperRuntimeEntry {
             try { result = backup.invoke(arguments[0], arguments[1]); }
             catch (InvocationTargetException wrapped) { throw wrapped.getCause(); }
             experimentalAudit(context, "attach_backup_completed");
+            auditContext = context;
             if (!context.getPackageName().toLowerCase(java.util.Locale.ROOT).contains("powerkeeper"))
                 return result;
             List<String> names = new ArrayList<String>(PowerKeeperRuntimePolicy.defaultCandidates());
@@ -114,9 +117,12 @@ public final class PowerKeeperRuntimeEntry {
         private final PowerKeeperRuntimePolicy.Interceptor handler;
         private final boolean isStatic;
         private Method backup;
+        private final String methodName;
+        private final AtomicBoolean invokedOnce = new AtomicBoolean();
         MethodInterceptor(PowerKeeperRuntimePolicy.Interceptor callback, Method target) {
             handler = callback;
             isStatic = java.lang.reflect.Modifier.isStatic(target.getModifiers());
+            methodName = target.getDeclaringClass().getName() + "#" + target.getName();
         }
         public Object callback(Object[] frame) throws Throwable {
             if (backup == null || frame == null || frame.length == 0)
@@ -124,12 +130,15 @@ public final class PowerKeeperRuntimeEntry {
             final Object receiver = isStatic ? null : frame[0];
             int offset = isStatic ? 0 : 1;
             Object[] params = java.util.Arrays.copyOfRange(frame, offset, frame.length);
-            return handler.onInvoke(receiver, params, new PowerKeeperRuntimePolicy.Proceed() {
+            Object value = handler.onInvoke(receiver, params, new PowerKeeperRuntimePolicy.Proceed() {
                 @Override public Object call(Object self, Object[] args) throws Throwable {
                     try { return backup.invoke(self, args); }
                     catch (InvocationTargetException wrapped) { throw wrapped.getCause(); }
                 }
             });
+            if (invokedOnce.compareAndSet(false, true))
+                experimentalAudit(auditContext, "method_invoked=" + methodName);
+            return value;
         }
     }
 }
