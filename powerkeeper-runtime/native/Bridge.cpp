@@ -208,4 +208,26 @@ extern "C" JNIEXPORT jint JNICALL Java_ArtInitSelfTest_runInit(JNIEnv* env, jcla
     msg(ANDROID_LOG_INFO, "ART selftest: initializing LSPlant in disposable process");
     return init_art(env) ? 1 : 0;
 }
+
+ // The test-only method is available solely in libfcmu_pk_selftest.so.
+ // Its target and callback classes live inside the disposable app_process
+ // driver, never inside PowerKeeper or system_server.
+ extern "C" JNIEXPORT jint JNICALL Java_ArtInitSelfTest_installHook(JNIEnv* env, jclass) {
+     if (!art_ready) return 0;
+     jclass target=env->FindClass("ArtInitSelfTest$Target");
+     jclass hooker=env->FindClass("ArtInitSelfTest$Hooker");
+     if (!target || !hooker) {clear_error(env);return 0;}
+     jmethodID original=env->GetMethodID(target,"answer","(I)I");
+     jmethodID callback=env->GetMethodID(hooker,"callback","([Ljava/lang/Object;)Ljava/lang/Object;");
+     jmethodID ctor=env->GetMethodID(hooker,"<init>","()V");
+     if (!original || !callback || !ctor) {clear_error(env);return 0;}
+     jobject originalMethod=env->ToReflectedMethod(target,original,JNI_FALSE);
+     jobject callbackMethod=env->ToReflectedMethod(hooker,callback,JNI_FALSE);
+     jobject hookerObject=env->NewObject(hooker,ctor);
+     if (!originalMethod || !callbackMethod || !hookerObject || clear_error(env)) return 0;
+     jobject backup=lsplant::Hook(env,originalMethod,hookerObject,callbackMethod);
+     if (!backup || clear_error(env)) return 0;
+     return lsplant::IsHooked(env,originalMethod) ? 1 : 0;
+ }
+
 #endif
