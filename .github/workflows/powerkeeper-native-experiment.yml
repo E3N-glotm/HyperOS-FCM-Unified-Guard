@@ -108,11 +108,11 @@ jobs:
             --static-zip "$base" --static-sha256 "$sha" \
             --native-so powerkeeper-runtime/build/production/libfcmu_pk.so \
             --dex powerkeeper-runtime/build/powerkeeper-runtime.dex \
-            --out dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip
+            --out dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip
           python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
-          p=Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip')
+          p=Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip')
           with ZipFile(p) as z:
               assert z.testzip() is None
               names=set(z.namelist())
@@ -121,16 +121,16 @@ jobs:
                            'powerkeeper-runtime.dex','backend/powerkeeper-packages.list'):
                   assert item in names, item
               assert b'id=fcm_unified_guard' in z.read('module.prop')
-              assert b'0.4.0-alpha.7' in z.read('module.prop')
+              assert b'0.4.0-alpha.8' in z.read('module.prop')
               assert not any(x.startswith('bridge/') or x.endswith('.apk') for x in names)
           print("ONE_MODULE_INSTALLABLE_CANDIDATE_AUDIT_OK")
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate-NOT-STABLE
+          name: HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate-NOT-STABLE
           path: |
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip.sha256
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip.sha256
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:

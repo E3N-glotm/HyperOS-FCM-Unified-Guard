@@ -13,8 +13,8 @@ import io
 from pathlib import Path, PurePosixPath
 import zipfile
 
-VERSION = "0.4.0-alpha.7"
-VERSION_CODE = "40007"
+VERSION = "0.4.0-alpha.8"
+VERSION_CODE = "40008"
 MOD_ID = "fcm_unified_guard"
 OUTPUT_NAME = f"HyperOS-FCM-Unified-Guard-v{VERSION}-integrated-candidate.zip"
 DEFAULT_PACKAGES = b"com.miui.powerkeeper\ncom.xiaomi.powerkeeper\n"
@@ -125,7 +125,7 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for name in sorted(files):
-            info = zipfile.ZipInfo(name, date_time=(2026, 10, 30, 0, 0, 0))
+            info = zipfile.ZipInfo(name, date_time=(2026, 10, 31, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3
             executable = name.endswith(".sh") or name in ("bin/milletctl", "bin/bridgectl")
