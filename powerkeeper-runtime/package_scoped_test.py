@@ -28,9 +28,14 @@ def main() -> None:
         binary = source.read("build/native/libfcmu_pk.so")
         dex = source.read("build/powerkeeper-runtime.dex")
         test_binary = source.read("build/native/libfcmu_pk_selftest.so")
-        assert binary[:4] == b"\x7fELF" and len(binary) > 1_000_000
-        assert dex[:4] == b"dex\n" and len(dex) > 1000
-        assert binary != test_binary
+        if not (binary[:5] == b"\x7fELF\x02" and int.from_bytes(binary[18:20], "little") == 183):
+            raise SystemExit("Candidate is not ELF64 AArch64")
+        if not (dex[:4] == b"dex\n" and len(dex) > 1000):
+            raise SystemExit("Bridge DEX missing or invalid")
+        if binary == test_binary or b"Java_ArtInitSelfTest_installHook" in binary:
+            raise SystemExit("Unsafe: selftest entrypoint detected in Zygisk candidate")
+        if b"/data/adb/fcmu_pk_experiment/zygisk-stage.tsv" not in binary:
+            raise SystemExit("Diagnostic test requires the scoped persistent trace build")
 
     module_prop = f"""id={MODULE}
 name=FCMU PowerKeeper ART Scoped Experiment [DISABLED]
@@ -52,6 +57,16 @@ if [ -f "$STATE/boot_attempt" ]; then
 fi
 cat /proc/sys/kernel/random/boot_id > "$STATE/boot_attempt"
 echo "first boot armed" > "$STATE/boot.log"
+# Emergency fail-closed guard if service stage never runs (e.g. zygote
+# startup repeats). This one-shot helper exits after 90 seconds and creates
+# only this experiment module's disable marker. It never restarts a service.
+(
+  sleep 90
+  if [ -d "$MODDIR" ] && [ ! -f "$MODDIR/disable" ]; then
+    touch "$MODDIR/disable"
+    echo "early-boot timeout: disabled for next module discovery" >> "$STATE/watchdog.log"
+  fi
+) </dev/null >/dev/null 2>&1 &
 exit 0
 """
     # Opt-out is set even when boot succeeds, so a future restart is not an
@@ -98,6 +113,8 @@ exit 0
         assert set(audit.namelist()) == set(files)
         assert audit.read("disable") == b""
         assert not any("lsposed" in name.lower() or name.startswith("system/") for name in files)
+        assert b"sleep 90" in audit.read("post-fs-data.sh")
+        assert b"touch \"$MODDIR/disable\"" in audit.read("service.sh")
     print(f"SCOPED_EXPERIMENT_DISABLED_PACKAGE_OK {args.out}")
     print(f"SOURCE_CI_SHA256 {digest}")
     print(f"PACKAGE_SHA256 {hashlib.sha256(args.out.read_bytes()).hexdigest()}")
