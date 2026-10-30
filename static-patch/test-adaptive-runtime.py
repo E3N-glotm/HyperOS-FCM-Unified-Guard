@@ -280,6 +280,21 @@ esac
   self.services.write_text("stock-v1");self.oem.write_text("oem-v1")
   summary=self.health()
   self.assertIn("🔴",summary);self.assertNotIn("框架已加载",summary)
+ def test_powerkeeper_signature_count_excludes_apk_and_class_metadata(self):
+  self.build();self.boot();self.script("service.sh")
+  path=self.mod/"backend/powerkeeper-capabilities.tsv"
+  path.write_text("pk.apk\tpresent\tinspectable_apks=1\n"
+   "pk.gms.observer\tpresent\tclass\n"
+   "pk.gms.alarm\tpresent\tmethod\n"
+   "pk.gms.network\tpresent\tmethod\n"
+   "pk.gms.binder_chain\tpresent\tmetadata\n"
+   "pk.gms.wakelock\tvariant\tother overload\n"
+   "pk.equivalence\tunverified\tnot active\n")
+  self.health()
+  report=(self.run/"health-status.txt").read_text()
+  self.assertIn("1 detected method signatures, 1 variants",report)
+  self.assertIn("0 PowerKeeper runtime hooks enabled",report)
+  self.assertNotIn("4 matching signatures",report)
  def test_action_active_backend_reports_actual_cached_capabilities(self):
   self.build();self.boot();self.script("service.sh")
   (self.mod/"backend/last-capabilities.tsv").unlink(missing_ok=True)
