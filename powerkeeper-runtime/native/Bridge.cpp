@@ -124,33 +124,41 @@ jclass from_loader(JNIEnv* env,jobject loader,const char* name){
     return static_cast<jclass>(result);
 }
 bool activate(JNIEnv* env){
-    if(dex.empty() || !init_art(env))return false;
+    if(dex.empty()){
+        msg(ANDROID_LOG_WARN,"Java bridge DEX is empty; skipping ART init");
+        return false;
+    }
+    if(!init_art(env))return false;
+    msg(ANDROID_LOG_INFO,"ART init succeeded; preparing Java bridge");
     jbyteArray input=env->NewByteArray(static_cast<jsize>(dex.size()));
-    if(!input){clear_error(env);return false;}
+    if(!input){clear_error(env);msg(ANDROID_LOG_WARN,"Java bridge: failed to allocate DEX input");return false;}
     env->SetByteArrayRegion(input,0,static_cast<jsize>(dex.size()),reinterpret_cast<const jbyte*>(dex.data()));
     jclass buffers=env->FindClass("java/nio/ByteBuffer");
     jmethodID wrap=buffers?env->GetStaticMethodID(buffers,"wrap","([B)Ljava/nio/ByteBuffer;"):nullptr;
-    if(!wrap){clear_error(env);return false;}
+    if(!wrap){clear_error(env);msg(ANDROID_LOG_WARN,"Java bridge: ByteBuffer.wrap unavailable");return false;}
     jobject buffer=env->CallStaticObjectMethod(buffers,wrap,input);
     jclass cl=env->FindClass("java/lang/ClassLoader");
     jmethodID system=cl?env->GetStaticMethodID(cl,"getSystemClassLoader","()Ljava/lang/ClassLoader;"):nullptr;
-    if(!system){clear_error(env);return false;}
+    if(!system){clear_error(env);msg(ANDROID_LOG_WARN,"Java bridge: system ClassLoader unavailable");return false;}
     jobject parent=env->CallStaticObjectMethod(cl,system);
     jclass im=env->FindClass("dalvik/system/InMemoryDexClassLoader");
     jmethodID ctor=im?env->GetMethodID(im,"<init>","(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V"):nullptr;
-    if(!ctor){clear_error(env);return false;}
+    if(!ctor){clear_error(env);msg(ANDROID_LOG_WARN,"Java bridge: InMemoryDexClassLoader unavailable");return false;}
     jobject loader=env->NewObject(im,ctor,buffer,parent);
-    if(!loader || clear_error(env))return false;
+    if(!loader || clear_error(env)){msg(ANDROID_LOG_WARN,"Java bridge: DEX ClassLoader construction failed");return false;}
     jclass cls=from_loader(env,loader,"io.github.e3n.fcmu.pk.PowerKeeperRuntimeEntry");
-    if(!cls)return false;
+    if(!cls){msg(ANDROID_LOG_WARN,"Java bridge: entry class unresolved");return false;}
     JNINativeMethod natives[]={{
         const_cast<char*>("nativeHook"),
         const_cast<char*>("(Ljava/lang/reflect/Method;Ljava/lang/Object;Ljava/lang/reflect/Method;)Ljava/lang/reflect/Method;"),
         reinterpret_cast<void*>(hook)
     }};
-    if(env->RegisterNatives(cls,natives,1)!=JNI_OK || clear_error(env))return false;
+    if(env->RegisterNatives(cls,natives,1)!=JNI_OK || clear_error(env)){
+        msg(ANDROID_LOG_WARN,"Java bridge: nativeHook registration failed");
+        return false;
+    }
     jmethodID prepare=env->GetStaticMethodID(cls,"prepare","([Ljava/lang/String;)Z");
-    if(!prepare){clear_error(env);return false;}
+    if(!prepare){clear_error(env);msg(ANDROID_LOG_WARN,"Java bridge: prepare method missing");return false;}
     jclass string_class=env->FindClass("java/lang/String");
     jobjectArray classes=env->NewObjectArray(static_cast<jsize>(detected.size()),string_class,nullptr);
     for(std::size_t i=0;i<detected.size();i++){
