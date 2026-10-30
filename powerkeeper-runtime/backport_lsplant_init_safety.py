@@ -37,14 +37,83 @@ def art_method(src):
 """,
         """            }
 """, "art_method JNI phase")
+    # Android O (API 26) uses a synthetic reflective exception test to
+    # infer kAccCompileDontBother. The old code installed a native hook
+    # DURING that JNI test. Prepare the Method first, install its hook only
+    # under suspension, then finish the JNI test after resuming ART threads.
+    early = """        if (sdk_int <= kSdkOreo) [[unlikely]] {
+            auto abstract_method_error = JNI_FindClass(env, "java/lang/AbstractMethodError");
+            if (!abstract_method_error) {
+                LOGE("Failed to find AbstractMethodError");
+                return false;
+            }
+            if (sdk_int == kSdkOreo) [[unlikely]] {
+                auto executable_get_name =
+                    JNI_GetMethodID(env, executable, "getName", "()Ljava/lang/String;");
+                if (!executable_get_name) {
+                    LOGE("Failed to find Executable.getName");
+                    return false;
+                }
+                handler(ThrowInvocationTimeError_);
+                auto abstract_method = FromReflectedMethod(
+                    env, JNI_ToReflectedMethod(env, executable, executable_get_name, false).get());
+                uint32_t access_flags = abstract_method->GetAccessFlags();
+                abstract_method->SetAccessFlags(access_flags | kAccDefaultConflict);
+                abstract_method->ThrowInvocationTimeError();
+                abstract_method->SetAccessFlags(access_flags);
+            }
+            if (auto exception = env->ExceptionOccurred();
+                env->ExceptionClear(),
+                (!exception || JNI_IsInstanceOf(env, exception, abstract_method_error)))
+                [[likely]] {
+                kAccCompileDontBother = kAccDefaultConflict;
+            }
+        }
+"""
+    prepared = """        if (sdk_int < kSdkOreo) [[unlikely]] {
+            auto abstract_method_error = JNI_FindClass(env, "java/lang/AbstractMethodError");
+            if (!abstract_method_error) return false;
+            if (auto exception = env->ExceptionOccurred();
+                env->ExceptionClear(),
+                (!exception || JNI_IsInstanceOf(env, exception, abstract_method_error))) {
+                kAccCompileDontBother = kAccDefaultConflict;
+            }
+        } else if (sdk_int == kSdkOreo) [[unlikely]] {
+            auto get_name = JNI_GetMethodID(env, executable, "getName",
+                                            "()Ljava/lang/String;");
+            if (!get_name) return false;
+            abstract_method_ = FromReflectedMethod(
+                env, JNI_ToReflectedMethod(env, executable, get_name, false).get());
+            if (!abstract_method_) return false;
+        }
+"""
+    src = replace_once(src,early,prepared,"ART Oreo JNI-before-Hook split")
     # Replace the entire 'else if' branch including its close brace.
     anchor = """    static size_t GetEntryPointOffset() { return entry_point_offset; }"""
     inject = """    // Hook-only phase, after the ART GC guard and thread suspension.
     static void InitHooks(const HookHandler &handler) {
+        if (GetAndroidApiLevel() == kSdkOreo && !handler(ThrowInvocationTimeError_))
+            LOGW("Oreo ThrowInvocationTimeError hook not available");
         if (GetAndroidApiLevel() == kSdkMarshmallow && abstract_method_ &&
             abstract_method_->IsAbstract() && !handler(GetQuickFrameInfo_)) {
             LOGW("GetQuickFrameInfo Hook not available; proxy Hook may be unsupported");
         }
+    }
+
+    // JNI postprocessing cannot run inside ScopedSuspendAll or a GC guard.
+    static bool FinishJNI(JNIEnv *env) {
+        if (GetAndroidApiLevel() != kSdkOreo) return true;
+        auto error = JNI_FindClass(env, "java/lang/AbstractMethodError");
+        if (!error || !abstract_method_) return false;
+        uint32_t original_flags = abstract_method_->GetAccessFlags();
+        abstract_method_->SetAccessFlags(original_flags | kAccDefaultConflict);
+        abstract_method_->ThrowInvocationTimeError();
+        abstract_method_->SetAccessFlags(original_flags);
+        if (auto exception = env->ExceptionOccurred();
+            env->ExceptionClear(),
+            (!exception || JNI_IsInstanceOf(env, exception, error)))
+            kAccCompileDontBother = kAccDefaultConflict;
+        return true;
     }
 
 """
@@ -190,6 +259,7 @@ def core(src):
 
     // JNI must finish while threads are running and before taking ART locks.
     const bool java_debuggable = IsJavaDebuggable(env);
+    {
     ScopedGCCriticalSection gc(Thread::Current(), art::gc::kGcCauseDebugger,
                               art::gc::kCollectorTypeDebugger);
     ScopedSuspendAll suspended("FCMU LSPlant Init", false);
@@ -206,6 +276,8 @@ def core(src):
     if (java_debuggable) {
         Runtime::Current()->SetJavaDebuggable(Runtime::RuntimeDebugState::kNonJavaDebuggable);
     }
+    } // resume ART threads and release the GC guard before running JNI
+    if (!ArtMethod::FinishJNI(env)) return false;
     return true;
 }
 """
@@ -233,6 +305,10 @@ def main():
         assert "JNI_" not in hooked and "IsJavaDebuggable(env)" not in hooked
         assert "InitHooks(handler)" in hooked
         assert "HookHandler::InitScope init_scope" in hooked
+        pre_art = data["art/runtime/art_method.cxx"].split("static bool Init(",1)[1].split("static void InitHooks",1)[0]
+        assert "handler(ThrowInvocationTimeError_)" not in pre_art
+        assert "ArtMethod::FinishJNI(env)" in hooked
+        assert "release the GC guard before running JNI" in hooked
         helper=data["include/utils/hook_helper.hpp"]
         assert "WaitedCallback<callback>::invoke" in helper
         assert "WaitForInitialization()" in helper
