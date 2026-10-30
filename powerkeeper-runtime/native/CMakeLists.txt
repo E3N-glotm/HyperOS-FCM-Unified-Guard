@@ -17,6 +17,12 @@ set(Plugin.Android.BionicLinkerUtil OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 set(BUILD_TEST OFF CACHE BOOL "" FORCE)
 add_subdirectory("${VENDOR}/dobby" "${CMAKE_BINARY_DIR}/dobby")
+# The standalone LSPlant build expects a cxx::cxx package normally delivered
+# via Android Gradle Prefab. When building directly with the official Android
+# NDK toolchain, its libc++ headers/runtime are already supplied by the
+# toolchain, so provide only a target bridge for find_package(cxx).
+set(LSPLANT_STANDALONE ON CACHE BOOL "" FORCE)
+set(cxx_DIR "${CMAKE_CURRENT_LIST_DIR}/cxx-config" CACHE PATH "" FORCE)
 set(LSPLANT_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(DEBUG_SYMBOLS_PATH "${CMAKE_BINARY_DIR}/symbols" CACHE PATH "" FORCE)
 add_subdirectory("${VENDOR}/lsplant/lsplant/src/main/jni" "${CMAKE_BINARY_DIR}/lsplant")
