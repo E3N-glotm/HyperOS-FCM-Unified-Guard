@@ -4,6 +4,9 @@ MODDIR=$(cd "$(dirname "$0")/.." && pwd)
 . "$MODDIR/bin/static_common.sh"
 B=$MODDIR/backend
 mkdir -p "$B" || exit 0
+# Store discovered PowerKeeper package/process names for a future
+# PowerKeeper-only Zygisk backend; no active system injection here.
+/system/bin/sh "$MODDIR/bin/powerkeeper_processes.sh" </dev/null || true
 out=$B/powerkeeper-capabilities.tsv
 tmp=$B/.powerkeeper-probe.$$.tsv
 apk_list=

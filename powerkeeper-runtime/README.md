@@ -21,6 +21,31 @@
 PowerKeeperRuntimeEntry.nativeHook 只定义 JNI 接口，不会在已有发行模块中调用。
 本目录的 DEX 不会进入 alpha.6 的正式 ZIP；当前 Magisk 静态 10/10 维持独立工作。
 
+## Zygisk-only 原生候选（源码实验，禁止直接发布）
+
+native/Bridge.cpp 提供只针对 PowerKeeper 进程的 Zygisk 装载入口：其它进程立即卸载；
+在应用创建前一次性读取桥接 DEX 和上次 OEM 探测报告；只在目标进程初始化 LSPlant/Dobby，
+并在 Application.attach 拿到真正的应用 ClassLoader 后逐项调用上述 Java 策略。
+没有添加常驻守护线程，也不会修改 system_server 或 PowerKeeper.apk。
+
+native/ArtSymbols.cpp 提供原生 libart ELF 符号解析，如果所在设备剥离了需要的符号，
+则该候选功能失败关闭而不影响 Magisk 核心。这是旧版/新版跨 ROM 适配的一项重要不确定性。
+
+目前已用 Android NDK r27 对 native/Bridge.cpp 与 native/ArtSymbols.cpp
+执行 arm64 C++23 语法检查通过，但尚未完成 LSPlant / Dobby 的整体链接及设备侧 Hook 验证。
+GitHub 的 powerkeeper-native-experiment 工作流仅能手动触发，
+生成的二进制属于非安装式调试产物，不属于正式模块 Release。
+
+获取开源依赖和编译 arm64 实验性二进制（需要 Linux、NDK 和 CMake/Ninja）：
+
+    ./powerkeeper-runtime/fetch-deps.sh
+    export ANDROID_NDK_HOME=/path/to/ndk
+    ./powerkeeper-runtime/build-native.sh
+
+依赖：LSPlant（LGPL-3.0）、Dobby（Apache-2.0）、Zygisk API 头文件（ISC）。
+源码及构建时的依赖版本写入 dependency-versions.txt。即使 native 构建成功，
+也不代表已通过真实 ART/PowerKeeper/耗电验收，因此不能混入正式版。
+
 ## 构建与测试
 
 从仓库根目录执行：
