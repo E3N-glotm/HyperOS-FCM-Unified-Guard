@@ -106,7 +106,7 @@ verified=0
 while [ "$attempt" -lt 2 ]; do
   attempt=$((attempt+1))
   rm -f "$WORK/patched/"*
-  if ! CLASSPATH="$MODDIR/tools/patcher.jar" bounded "$VM" -Xmx1024m io.github.e3n.fcmu.Adaptive \
+  if ! CLASSPATH="$MODDIR/tools/patcher.jar" bounded "$VM" -Xmx512m io.github.e3n.fcmu.Adaptive \
       "$WORK/source/services.jar" "$oem_arg" "$MODDIR/tools/policy.dex" "$WORK/patched" "$excluded" > "$B/build.log" 2>&1; then
     [ ! -f "$WORK/patched/capabilities.tsv" ] || cp "$WORK/patched/capabilities.tsv" "$B/last-capabilities.tsv"
     if [ -f "$WORK/patched/capabilities.tsv" ] && ! grep -q "$(printf '\t')ready$(printf '\t')" "$WORK/patched/capabilities.tsv"; then

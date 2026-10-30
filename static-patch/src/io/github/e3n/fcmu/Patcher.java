@@ -165,29 +165,65 @@ public final class Patcher {
  static byte[] dexBytes(Collection<? extends ClassDef> classes)throws Exception{
   DexPool pool=new DexPool(Opcodes.getDefault());for(ClassDef c:classes)pool.internClass(c);
   com.android.tools.smali.dexlib2.writer.io.MemoryDataStore data=new com.android.tools.smali.dexlib2.writer.io.MemoryDataStore();
-  pool.writeTo(data);byte[] out=data.getData();data.close();return out;
+  try {pool.writeTo(data);return data.getData();}
+  finally {data.close();}
+ }
+ static boolean indexOverflow(Throwable error){
+  for(Throwable e=error;e!=null;e=e.getCause()){
+   if(String.valueOf(e.getMessage()).contains("Unsigned short value out of range"))return true;
+  }
+  return false;
+ }
+ static String allocateDexEntry(Set<String> used,int[] next){
+  String entry;
+  do{entry="classes"+(next[0]++)+".dex";}while(used.contains(entry));
+  used.add(entry);return entry;
+ }
+ // A nearly-full OEM DEX may push a legacy code_item reference from 65535
+ // to 65536 after injecting a policy. On this exact dexlib2 failure only,
+ // separate patched classes into an appended DEX and keep the unmodified
+ // classes in the original entry. No source class is dropped or duplicated.
+ static void writeChangedDex(String entry,List<ClassDef> all,List<ClassDef> untouched,
+       List<ClassDef> altered,Map<String,byte[]> replaced,Set<String> used,int[] next,
+       boolean testForceSplit)throws Exception{
+  if(!testForceSplit){
+   try{replaced.put(entry,dexBytes(all));return;}
+   catch(Exception error){if(!indexOverflow(error))throw error;}
+  }
+  if(untouched.isEmpty()||altered.isEmpty())
+   throw new IllegalStateException("DEX index overflow: cannot split without modified and unmodified classes");
+  byte[] base=dexBytes(untouched), extracted=dexBytes(altered);
+  String extra=allocateDexEntry(used,next);
+  replaced.put(entry,base);replaced.put(extra,extracted);
+  System.out.println("DEX_SPLIT_INDEX_OVERFLOW: "+entry+" preserved, moved "+altered.size()+" patched class(es) to "+extra);
  }
  static byte[] read(InputStream s)throws Exception{ByteArrayOutputStream o=new ByteArrayOutputStream();byte[] t=new byte[65536];int n;while((n=s.read(t))>0)o.write(t,0,n);return o.toByteArray();}
  static void patch(File source,File target,byte[] helper,boolean system)throws Exception{
   MultiDexContainer<? extends DexBackedDexFile> con=DexFileFactory.loadDexContainer(source,Opcodes.getDefault());
   Map<String,byte[]> replaced=new HashMap<String,byte[]>();
+  Set<String> used=new HashSet<String>(con.getDexEntryNames());
+  int[] next=new int[]{2};
   for(String entry:con.getDexEntryNames()){
-   DexFile d=con.getEntry(entry).getDexFile();List<ClassDef> cls=new ArrayList<ClassDef>();boolean changed=false;
+   DexFile d=con.getEntry(entry).getDexFile();
+   List<ClassDef> cls=new ArrayList<ClassDef>();
+   List<ClassDef> untouched=new ArrayList<ClassDef>();
+   List<ClassDef> altered=new ArrayList<ClassDef>();
+   boolean changed=false;
    for(ClassDef c:d.getClasses()){
     if(adaptiveMethods==null)validateClass(c);
     if(c.getType().equals(P))throw new IllegalStateException("Source already patched");
     List<Method> methods=new ArrayList<Method>();boolean cc=false;
     for(Method m:c.getMethods()){Method r=rewrite(m);methods.add(r);if(r!=m)cc=true;}
-    if(cc){changed=true;cls.add(new ImmutableClassDef(c.getType(),c.getAccessFlags(),c.getSuperclass(),c.getInterfaces(),c.getSourceFile(),c.getAnnotations(),c.getFields(),methods));}else cls.add(c);
+    if(cc){
+     changed=true;
+     ClassDef transformed=new ImmutableClassDef(c.getType(),c.getAccessFlags(),c.getSuperclass(),c.getInterfaces(),c.getSourceFile(),c.getAnnotations(),c.getFields(),methods);
+     cls.add(transformed);altered.add(transformed);
+    }else{cls.add(c);untouched.add(c);}
    }
-   if(changed)replaced.put(entry,dexBytes(cls));
+   if(changed)writeChangedDex(entry,cls,untouched,altered,replaced,used,next,false);
   }
   if(adaptiveMethods==null)requireTargets(system);
-  if(system){
-   int next=con.getDexEntryNames().size()+1;String entry="classes"+next+".dex";
-   try(ZipFile z=new ZipFile(source)){if(z.getEntry(entry)!=null)throw new IllegalStateException("Helper dex collision");}
-   replaced.put(entry,helper);
-  }
+  if(system){replaced.put(allocateDexEntry(used,next),helper);}
   // STORED DEX entries are four-byte aligned for ART mmap. Use a private
   // extra field rather than silently producing a malformed ZIP header.
   try(ZipFile z=new ZipFile(source);FileOutputStream file=new FileOutputStream(target);CountingOutputStream count=new CountingOutputStream(file);ZipOutputStream out=new ZipOutputStream(count)){
