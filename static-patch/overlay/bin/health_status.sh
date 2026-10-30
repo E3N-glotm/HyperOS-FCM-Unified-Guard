@@ -120,7 +120,7 @@ if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
     fi
   fi
 elif [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
-  emit GRAY POWERKEEPER "read-only APK probe: $pk_probe_label; PowerKeeper runtime not included in this static-only build"
+  emit GRAY POWERKEEPER "read-only APK probe: $pk_probe_label; 0 PowerKeeper runtime hooks enabled (static-only build)"
 else
   emit GRAY POWERKEEPER "PowerKeeper runtime not included; optional interface discovery unavailable"
 fi
