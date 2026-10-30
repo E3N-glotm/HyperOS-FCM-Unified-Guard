@@ -60,12 +60,22 @@ public final class Patcher {
   for(Field f:c.getFields())if(f.getName().equals(name)&&f.getType().equals(type))return;
   throw new IllegalStateException("Required field missing: "+c.getType()+"->"+name+":"+type);
  }
+ static void requireAnyField(ClassDef c,String type,String... names){
+  for(String candidate:names)for(Field f:c.getFields())
+   if(f.getName().equals(candidate)&&f.getType().equals(type))return;
+  throw new IllegalStateException("Missing compatible field in "+c.getType()+": "+Arrays.toString(names)+":"+type);
+ }
  static void validateClass(ClassDef c){
   String n=c.getType();
-  if(n.equals("Lcom/miui/server/greeze/GreezeManagerService;"))requireField(c,"mGmsLimitEnabled","Z");
+  if(n.equals("Lcom/miui/server/greeze/GreezeManagerService;")){
+   boolean booleanOverload=false;
+   for(Method m:c.getMethods())
+    if(m.getName().equals("triggerGMSLimitAction")&&sig(m).equals("(Z)V"))booleanOverload=true;
+   if(!booleanOverload)requireField(c,"mGmsLimitEnabled","Z");
+  }
   if(n.equals("Lcom/miui/server/greeze/power/ListAppsManager;")){
-   requireField(c,"SYSTEM_BLACK_LIST","Ljava/util/List;");
-   requireField(c,"USE_DATA_WHITE_LIST","Ljava/util/Set;");
+   requireAnyField(c,"Ljava/util/List;","mSystemBlackList","SYSTEM_BLACK_LIST");
+   requireAnyField(c,"Ljava/util/Set;","mUseDataWhiteList","USE_DATA_WHITE_LIST");
   }
   if(n.equals("Lcom/miui/server/greeze/power/AwareResourceControl;"))requireField(c,"mNoNetworkBlackUids","Ljava/util/List;");
   if(n.equals("Lcom/android/server/am/ActivityManagerService;")){
@@ -123,6 +133,16 @@ public final class Patcher {
     return prefix(m,"greeze.allow",ref("allowGreeze","Z",O,"I",S,"I",S,S),6,true,true);
    if(n.equals("deferBroadcastForMiui")&&s.equals("(Ljava/lang/String;)Z"))
     return prefix(m,"greeze.defer",ref("skipGreezeDefer","Z",O,S),2,true,false);
+   if(n.equals("triggerGMSLimitAction")&&s.equals("(Z)V")){
+    // Match the former LSPosed behavior: pass false to the original method.
+    instanceMethod(m);
+    MutableMethodImplementation x=new MutableMethodImplementation(m.getImplementation());
+    int arg=x.getRegisterCount()-1;
+    if(arg<0||arg>255)throw new IllegalStateException("Unsupported boolean limiter frame");
+    if(arg<=15)x.addInstruction(0,new BuilderInstruction11n(Opcode.CONST_4,arg,0));
+    else x.addInstruction(0,new BuilderInstruction21s(Opcode.CONST_16,arg,0));
+    hit("greeze.limit");return copy(m,x);
+   }
    if(n.equals("triggerGMSLimitAction")&&s.equals("()V")){
     instanceMethod(m);
     MutableMethodImplementation x=new MutableMethodImplementation(m.getImplementation());

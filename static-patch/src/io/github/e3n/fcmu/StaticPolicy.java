@@ -22,6 +22,12 @@ public final class StaticPolicy {
   while(c!=null){try{Field f=c.getDeclaredField(name);f.setAccessible(true);return f;}catch(NoSuchFieldException e){c=c.getSuperclass();}}
   throw new NoSuchFieldException(name);
  }
+ private static Field anyField(Class<?> c,String...names)throws Exception{
+  for(String candidate:names){
+   try{return field(c,candidate);}catch(NoSuchFieldException ignored){}
+  }
+  throw new NoSuchFieldException(Arrays.toString(names));
+ }
  private static Method method(Class<?> c,String name,Class<?>...types)throws Exception{
   while(c!=null){try{Method m=c.getDeclaredMethod(name,types);m.setAccessible(true);return m;}catch(NoSuchMethodException e){c=c.getSuperclass();}}
   throw new NoSuchMethodException(name);
@@ -48,11 +54,11 @@ public final class StaticPolicy {
  }
  @SuppressWarnings({"rawtypes","unchecked"})
  public static void listConstruct(Object self){
-  try{Object v=field(self.getClass(),"SYSTEM_BLACK_LIST").get(self);if(v instanceof List)((List)v).remove(GMS);}catch(Exception ignored){}
+  try{Object v=anyField(self.getClass(),"mSystemBlackList","SYSTEM_BLACK_LIST").get(self);if(v instanceof List)((List)v).remove(GMS);}catch(Exception ignored){}
  }
  @SuppressWarnings({"rawtypes","unchecked"})
  public static void listWhite(Object self,String ignored){
-  try{Object v=field(self.getClass(),"USE_DATA_WHITE_LIST").get(self);if(v instanceof Set)((Set)v).add(GMS);}catch(Exception ignoredError){}
+  try{Object v=anyField(self.getClass(),"mUseDataWhiteList","USE_DATA_WHITE_LIST").get(self);if(v instanceof Set)((Set)v).add(GMS);}catch(Exception ignoredError){}
  }
  @SuppressWarnings({"rawtypes","unchecked"})
  public static void awareConstruct(Object self){

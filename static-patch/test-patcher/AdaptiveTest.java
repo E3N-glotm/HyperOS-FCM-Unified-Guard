@@ -16,6 +16,26 @@ public final class AdaptiveTest {
    CapabilityTest.jars(services,oem,f,false);
    Adaptive.Plan partial=Adaptive.plan(services,oem,Collections.<String>emptySet());
    check(partial.unavailable.size()==1&&partial.unavailable.containsKey("greeze.limit"),"missing limiter field must not suppress unrelated capabilities");
+   // Regression: the old LSPosed module supports two OEM field naming
+   // conventions. Both must be admitted by static adaptation.
+   Map<String,ClassDef> aliases=CapabilityTest.fixture();
+   String list="Lcom/miui/server/greeze/power/ListAppsManager;";
+   ClassDef li=aliases.get(list);
+   aliases.put(list,new ImmutableClassDef(list,1,"Ljava/lang/Object;",null,null,null,
+       Arrays.<Field>asList(CapabilityTest.field(list,"mSystemBlackList","Ljava/util/List;"),
+           CapabilityTest.field(list,"mUseDataWhiteList","Ljava/util/Set;")),li.getMethods()));
+   String g="Lcom/miui/server/greeze/GreezeManagerService;";
+   ClassDef gr=aliases.get(g);
+   List<Method> altered=new ArrayList<Method>();
+   for(Method m:gr.getMethods())
+    if(m.getName().equals("triggerGMSLimitAction"))
+     altered.add(CapabilityTest.method(g,"triggerGMSLimitAction","V","Z"));
+    else altered.add(m);
+   aliases.put(g,new ImmutableClassDef(g,1,"Ljava/lang/Object;",null,null,null,
+       Collections.<Field>emptyList(),altered));
+   CapabilityTest.jars(services,oem,aliases,false);
+   Adaptive.Plan aliasPlan=Adaptive.plan(services,oem,Collections.<String>emptySet());
+   check(aliasPlan.unavailable.isEmpty(),"legacy field aliases and boolean limiter must preserve 10/10");
    CapabilityTest.jars(services,oem,CapabilityTest.fixture(),false);
    Adaptive.Plan excluded=Adaptive.plan(services,oem,new HashSet<String>(Arrays.asList("ams.broadcast")));
    check(excluded.unavailable.size()==1&&excluded.unavailable.containsKey("ams.broadcast"),"failed runtime API must disable only its feature");
