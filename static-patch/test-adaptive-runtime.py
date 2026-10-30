@@ -292,7 +292,7 @@ esac
    "pk.equivalence\tunverified\tnot active\n")
   self.health()
   report=(self.run/"health-status.txt").read_text()
-  self.assertIn("1 detected method signatures, 1 variants",report)
+  self.assertIn("2 detected method signatures, 1 variants",report)
   self.assertIn("0 PowerKeeper runtime hooks enabled",report)
   self.assertNotIn("4 matching signatures",report)
  def test_action_active_backend_reports_actual_cached_capabilities(self):
