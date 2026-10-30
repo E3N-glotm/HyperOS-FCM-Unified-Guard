@@ -234,8 +234,19 @@ soft_reconnect_if_stalled() {
   [ "$soft_outage" -ge 120 ] 2>/dev/null || return 1
 
   scheduler_state=$(gcm_reconnect_scheduler_state)
+  soft_gap=300
   case "$scheduler_state" in
     overdue) soft_reason=overdue-scheduler ;;
+    scheduled)
+      # An apparently scheduled alarm can still leave GMS disconnected for
+      # hours. A single native reconnect broadcast recovered the 2026-10-30
+      # 7h outage with the same GMS PID. Only try this fallback if the mtalk
+      # TCP route is confirmed, and rate-limit it to once every 30 minutes.
+      [ "$soft_outage" -ge 900 ] 2>/dev/null || return 1
+      [ -n "$(fcm_path_ready 2>/dev/null || true)" ] || return 1
+      soft_reason=long-outage-despite-scheduled-alarm
+      soft_gap=1800
+      ;;
     missing)
       # Avoid racing the short window between one reconnect attempt and GMS
       # registering its next alarm. A completely missing scheduler is only
@@ -248,7 +259,7 @@ soft_reconnect_if_stalled() {
 
   soft_last=$(cat "$SOFT_RECONNECT_FILE" 2>/dev/null)
   case "$soft_last" in ''|*[!0-9]*) soft_last=0;; esac
-  [ $((soft_now-soft_last)) -ge 300 ] 2>/dev/null || return 1
+  [ $((soft_now-soft_last)) -ge "$soft_gap" ] 2>/dev/null || return 1
   printf '%s\n' "$soft_now" > "$SOFT_RECONNECT_FILE"
 
   # This is the same reconnect event GMS normally receives from its own
@@ -297,7 +308,10 @@ android_resolve_mtalk() {
   # itself is still receiving UNKNOWN_HOST through Android's resolver chain.
   out=$(run_timeout /system/bin/ping -c 1 -W 1 mtalk.google.com 2>&1 || true)
   ip=$(printf '%s\n' "$out" | awk '
-    /PING[[:space:]]+mtalk[.]google[.]com/ {
+    # libc ping may print the DNS canonical name rather than the query
+    # alias: PING mobile-gtalk.l.google.com (74.125.x.y). Match its IP,
+    # never depend on the first token preserving mtalk.google.com.
+    /^PING[[:space:]]+[^[:space:]]+[[:space:]]/ {
       if (match($0, /\([0-9][0-9.]*\)/)) {
         value=substr($0, RSTART+1, RLENGTH-2)
         if (split(value, octets, ".") == 4) { print value; exit }

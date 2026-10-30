@@ -15,6 +15,24 @@ grep -q 'recent_gms_unknown_host_epoch' "$GUARD" \
   || fail "GMS UNKNOWN_HOST evidence is not inspected"
 grep -q 'android_resolve_mtalk' "$GUARD" \
   || fail "Android resolver path is not checked"
+grep -Fq '/^PING[[:space:]]+[^[:space:]]+[[:space:]]/' "$GUARD" \
+  || fail "CNAME-safe mtalk resolver pattern missing"
+grep -q 'long-outage-despite-scheduled-alarm' "$GUARD" \
+  || fail "stalled scheduled alarm lacks bounded soft recovery"
+grep -q 'soft_gap=1800' "$GUARD" \
+  || fail "scheduled-alarm recovery must be rate limited"
+# Real device prints PING mobile-gtalk.l.google.com (IP), not PING mtalk.google.com.
+for line in 'PING mtalk.google.com (74.125.10.1) 56(84) bytes of data.' \
+  'PING mobile-gtalk.l.google.com (173.194.202.188) 56(84) bytes of data.'; do
+  parsed=$(printf '%s\n' "$line" | awk '
+    /^PING[[:space:]]+[^[:space:]]+[[:space:]]/ {
+      if (match($0, /\([0-9][0-9.]*\)/)) {
+        value=substr($0,RSTART+1,RLENGTH-2)
+        if (split(value, octets, ".") == 4) { print value; exit }
+      }
+    }')
+  [ -n "$parsed" ] || fail "DNS alias parser rejected: $line"
+done
 grep -q 'flush_android_dns' "$GUARD" \
   || fail "DNS remediation is missing"
 grep -q 'IPTABLES_WAIT_SECONDS=5' "$GUARD" \

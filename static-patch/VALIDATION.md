@@ -83,3 +83,10 @@ f2b78b295bd613f02081a7c952023800ab28dd85948461fdea26ffd3b8eb55dc
 尚未证明真实消息的到达率、长锁屏与网络切换表现，以及功耗是否与原组合持平或更低。本轮检查时手机亮屏、远程控制与 MCP 持有唤醒锁，batterystats 起点早于本次重启并混入旧组合数据，不能用于新模块的电池 A/B 结论。
 
 因此单 Magisk 构建、首次冷启动、连接和免冻结状态已通过初步检查；运行时完整等效性与续航仍未验收，不能将本文结果宣传为全面替换验收成功。上文隔离安装包和生成器哈希是 alpha.1 的历史记录，alpha.2 包哈希以对应构建产物为准。
+
+## v0.4.0-alpha.3 事故与验证边界
+
+- 2026-10-30 02:35–09:27：实机 FCM 断联约 6 小时 52 分。`ping mtalk.google.com` 成功返回规范域名 `mobile-gtalk.l.google.com`，但守护只接受输入域名，错误地把成功解析判成失败。09:27 发送原生 `GCM_RECONNECT` 后 1 秒内恢复 GcmService Connected，GMS PID 未改变；随后清除了断联计时。
+- Box4Magisk `BOX_LOCAL` 已发现 UID 10139 / TCP 5228–5230 例外，手机根用户测试能 TCP connect；这不能单独保证 GMS 端到端推送，更不能排除运营商链路间歇关闭（用户 FCM 诊断存在多次 Close err 20/28/30）。
+- 外部用户的 ROM 在 `miui-services.jar` dexlib2 重写时报 `Unsigned short value out of range: 65536`，且部分 Greeze 字段缺失。修复方案仅对索引溢出分离被修改类和原类，保留可用静态功能；缺失字段仍标 unavailable。`-Xmx512m` 规避部分 ART -Xmx1024m 初始化 SIGABRT。
+- 单元测试涵盖强制 DEX 拆分后所有类仍存在且唯一，CI 再验证生成包、DEX 和 ART。**外部反馈设备尚未取得原始 OEM JAR，不能宣称已经在该机型完成冷启动或功能验证。**

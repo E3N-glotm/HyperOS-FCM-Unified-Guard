@@ -1,4 +1,4 @@
-# HyperOS FCM Unified Guard v0.4.0-alpha.2
+# HyperOS FCM Unified Guard v0.4.0-alpha.3
 
 单个 Magisk 模块，保留 Millet/FCM 基础守护，并按当前框架可用能力生成静态策略；无需 FCM Live APK、LSPosed 或 Zygisk。
 
@@ -63,3 +63,11 @@ python static-patch/package.py
 ## 许可
 
 静态策略源于 Howard20181 的 HyperOS_FCM_Live 与 E3N 修复分支，GPL-3.0-only；已有守护核心保留 MIT。完整 GPL 许可和上游对应源码在 ../bridge-source，安装包附带两份许可证。不能用根目录 MIT 许可覆盖 GPL 部分。
+
+## v0.4.0-alpha.3 修复说明
+
+- 修复 Android 解析别名后 `ping` 显示 `mobile-gtalk.l.google.com` 时，守护程序错误认定 `mtalk.google.com` DNS 失败并长时间禁止恢复。
+- 长时间断联、重连闹钟仍显示已安排且端口可达时，每 30 分钟最多发送一次原生 GCM_RECONNECT，优先于终止 GMS 进程。
+- 静态 OEM DEX 超过 16 位索引上限时仅对该种写入失败执行分离重建，保留原文件未修改的类，单独生成修改类 DEX；仍经 DEX/ART 检查后才能启用。
+- 部分 ART 对 `-Xmx1024m` 启动异常，适配器改为 `-Xmx512m`。跨 ROM 效果仍取决于实际类、字段、ART 校验和冷启动结果。
+- 系统诊断中的 Greeze 和 Millet 状态分开检测，框架报告缺失显示未知而不是 `0/0`。

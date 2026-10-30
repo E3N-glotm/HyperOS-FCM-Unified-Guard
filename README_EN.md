@@ -2,9 +2,9 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module with an independent Millet/FCM guard and static framework policies generated on the device from available system interfaces. Current version: **v0.4.0-alpha.2**. No FCM Live APK, LSPosed or Zygisk is required.
+A single Magisk module with an independent Millet/FCM guard and static framework policies generated on the device from available system interfaces. Current version: **v0.4.0-alpha.3**. No FCM Live APK, LSPosed or Zygisk is required.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.3/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.3-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.3/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.3-static.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
@@ -25,7 +25,7 @@ Unrestricted installation does not imply identical functionality on every ROM. S
 
 ## Installation and upgrades
 
-1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
+1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.3-static.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
 2. Back up `/data/adb/fcm_unified_guard/`. When migrating from Millet Guard, also preserve its package list and ownership records. Existing `packages.list` and `unified.conf` are retained during upgrades; legacy configuration is imported only when no current configuration exists.
 3. Install the ZIP in Magisk. Disable the duplicate legacy Millet Guard core. If FCM Live/LSPosed bridge features are enabled, disable the overlapping features to avoid duplicate policy handling.
 4. Put one managed package name per line in `/data/adb/fcm_unified_guard/packages.list`. After a fresh installation, reboot normally and wait for adaptation to finish and request a reboot, then reboot once more. An existing usable cache may avoid this generation step.
@@ -79,3 +79,7 @@ The repository retains the legacy bridge integration in `module/`, `bridge-sourc
 - The base guard derives from [E3N Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard) and retains the root [MIT license](LICENSE).
 - Static policies derive from [Howard20181 / HyperOS_FCM_Live](https://github.com/Howard20181/HyperOS_FCM_Live) and the [E3N compatibility fork](https://github.com/E3N-glotm/HyperOS_FCM_Live), under GPL-3.0-only. Corresponding upstream source and the [GPL license](bridge-source/LICENSE) remain in `bridge-source/`; the current implementation is in `static-patch/`.
 - The root MIT license does not cover GPL components. Both licenses are included in the module ZIP. Original bridge provenance is documented in [PROVENANCE.txt](module/bridge/PROVENANCE.txt).
+
+### v0.4.0-alpha.3 fixes
+
+Fixes DNS canonical-alias parsing for mtalk; adds a bounded native soft reconnect for lengthy outages despite scheduled reconnect alarms; splits only modified OEM DEX classes on dexlib2 16-bit reference overflow, subject to DEX and ART validation. Absent ROM fields still degrade only the affected features.

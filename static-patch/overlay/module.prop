@@ -1,6 +1,6 @@
 id=fcm_unified_guard
 name=HyperOS FCM Unified Guard 🟡
-version=0.4.0-alpha.2
-versionCode=40002
+version=0.4.0-alpha.3
+versionCode=40003
 author=E3N
 description=🟡 已安装，等待启动检测 | 按功能降级、Magisk 状态灯、系统升级后自动重建 | 不自动禁用/卸载/重启

@@ -2,9 +2,9 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.2**，无需 FCM Live APK、LSPosed 或 Zygisk。
+单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.3**，无需 FCM Live APK、LSPosed 或 Zygisk。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.2/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.3/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.3-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.3/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.3-static.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
@@ -25,7 +25,7 @@
 
 ## 安装与升级
 
-1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.2-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
+1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.3-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
 2. 备份 `/data/adb/fcm_unified_guard/`；若从旧 Millet Guard 迁移，同时保留旧名单与所有权记录。升级保留已有 `packages.list` 和 `unified.conf`，仅在首次没有配置时导入旧名单。
 3. 在 Magisk 中安装 ZIP。关闭旧 Millet Guard 的重复守护；若此前启用了 FCM Live/LSPosed 桥接，关闭对应功能，避免与静态策略重复处理。
 4. 将需要管理的应用逐行写入 `/data/adb/fcm_unified_guard/packages.list`。首次安装后正常重启，等待“自动适配中”变为“待重启生效”，再正常重启一次；已有可用缓存时可能无需这一步等待。
@@ -79,3 +79,7 @@ python static-patch/package.py
 - 基础守护源于 [E3N Millet Guard](https://github.com/E3N-glotm/HyperOS-Millet-Guard)，保留根目录 [MIT 许可](LICENSE)。
 - 静态策略源于 [Howard20181 / HyperOS_FCM_Live](https://github.com/Howard20181/HyperOS_FCM_Live) 及 [E3N 兼容分支](https://github.com/E3N-glotm/HyperOS_FCM_Live)，采用 GPL-3.0-only；对应源码及 [GPL 许可](bridge-source/LICENSE) 保留在 `bridge-source/`，新版实现位于 `static-patch/`。
 - 根目录 MIT 不覆盖 GPL 部分。安装包附带两份许可证；原桥接来源可查 [PROVENANCE.txt](module/bridge/PROVENANCE.txt)。
+
+### v0.4.0-alpha.3 故障修复
+
+修复 FCM DNS 规范别名误判、长期断联时有条件的原生软重连，以及部分 OEM DEX 重写发生 `Unsigned short value out of range: 65536` 的问题；静态适配生成的结果仍须经过 ART 校验并在下一次正常重启加载。缺失的 OEM 字段继续独立降级，不会被标记为已适配。更多说明见 [静态适配说明](static-patch/README.md)。
