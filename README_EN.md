@@ -2,9 +2,9 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module with an independent Millet/FCM guard and static framework policies generated on the device from available system interfaces. Current version: **v0.4.0-alpha.5**. No FCM Live APK, LSPosed or Zygisk is required.
+A single Magisk module with an independent Millet/FCM guard and static framework policies generated on the device from available system interfaces. Current version: **v0.4.0-alpha.6**. No FCM Live APK, LSPosed or Zygisk is required.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.5/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.5/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
@@ -25,7 +25,7 @@ Unrestricted installation does not imply identical functionality on every ROM. S
 
 ## Installation and upgrades
 
-1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
+1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
 2. Back up `/data/adb/fcm_unified_guard/`. When migrating from Millet Guard, also preserve its package list and ownership records. Existing `packages.list` and `unified.conf` are retained during upgrades; legacy configuration is imported only when no current configuration exists.
 3. Install the ZIP in Magisk. Disable the duplicate legacy Millet Guard core. If FCM Live/LSPosed bridge features are enabled, disable the overlapping features to avoid duplicate policy handling.
 4. Put one managed package name per line in `/data/adb/fcm_unified_guard/packages.list`. After a fresh installation, reboot normally and wait for adaptation to finish and request a reboot, then reboot once more. An existing usable cache may avoid this generation step.
@@ -91,3 +91,7 @@ Magisk Action can now inspect installed PowerKeeper APKs and report per-method `
 ### v0.4.0-alpha.5: FCM status cache race fix
 
 Fixes the misleading 'FCM unknown' display if the five-minute Magisk health check races with the separate two-minute guard status update. Invalid or stale cached observations trigger one bounded direct GcmService query during the existing health cycle; fresh observations incur no additional query. The health UI no longer overwrites the guard-owned observation file. No new background process or PowerKeeper hook is added.
+
+### v0.4.0-alpha.6: truthful Action diagnostics
+
+Action now reads the active generation's `capabilities.tsv` instead of requiring the optional `last-capabilities.tsv` and mistaking an absent historical report for framework failure. Previous build logs are clearly labelled as historical, and PowerKeeper APK/class metadata no longer inflates the count of method signatures. PowerKeeper hooks remain inactive. No new background processes or polling are introduced.
