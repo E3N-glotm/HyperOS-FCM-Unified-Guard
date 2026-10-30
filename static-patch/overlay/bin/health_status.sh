@@ -86,9 +86,11 @@ esac
 # PowerKeeper APK-local GmsObserver/NetdExecutor/Doze-list hooks from the
 # former LSPosed module are NOT equivalent and must not be hidden behind 10/10.
 if [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
-  pk_present=$(awk -F '\t' '$1 ~ /^pk\./ && $2=="present" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
-  pk_variant=$(awk -F '\t' '$1 ~ /^pk\./ && $2=="variant" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
-  emit GRAY POWERKEEPER "read-only APK probe: $pk_present matching signatures, $pk_variant variants; no runtime hooks; not included in framework count"
+  # APK existence, observer class, binder call-chain and equivalence marker
+  # are metadata, NOT hookable method signatures. Do not count them as hooks.
+  pk_present=$(awk -F '\t' '$1 ~ /^pk\./ && $1!="pk.apk" && $1!="pk.gms.observer" && $1!="pk.gms.binder_chain" && $1!="pk.equivalence" && $2=="present" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
+  pk_variant=$(awk -F '\t' '$1 ~ /^pk\./ && $1!="pk.apk" && $1!="pk.gms.observer" && $1!="pk.gms.binder_chain" && $1!="pk.equivalence" && $2=="variant" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
+  emit GRAY POWERKEEPER "read-only APK probe: $pk_present detected method signatures, $pk_variant variants; 0 PowerKeeper runtime hooks enabled; excluded from framework count"
 else
   emit GRAY POWERKEEPER "APK signatures not scanned; open Magisk Action to inspect; no runtime hooks"
 fi
