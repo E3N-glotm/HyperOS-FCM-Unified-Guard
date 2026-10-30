@@ -2,11 +2,17 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.6**，无需 FCM Live APK、LSPosed 或 Zygisk。
+单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.7（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.7/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.7/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
+
+## v0.4.0-alpha.7：单一模块实机验收
+
+2026-10-30 已在 ARM64 / Android 17 手机上通过 Magisk 安装并完成**两次正常重启**。10/10 自适应框架能力已实际挂载，Zygisk Next 已登记并在 PowerKeeper 进程映射原生库；GMS 在 Millet/DeviceIdle 名单、Greeze 限制为 false，FCM 5228 连通且未新增崩溃。Magisk 若显示黄色“部分功能/适配中”，通常表示 PowerKeeper **方法级 Hook 与端到端消息到达尚无集成版独立证明**，不等于框架未加载成功。
+
+该版本为当前 **Latest 推荐下载**，但保留 alpha 标签；其他机型、真实推送到达率及长期续航 A/B 仍需进一步验证，不承诺所有 OEM 功能完全等效。详见 [PR #15 实机验收记录](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/15#issuecomment-6524287155) 与 [安装说明](powerkeeper-runtime/docs/integrated-magisk-candidate-v040a7.md)。
 
 ## 功能与兼容性
 
@@ -19,13 +25,14 @@
 | 静态框架策略 | 广播、自启动、临时豁免、GMS 限制及进程/网络名单等十项能力，分别检测、生成和校验 |
 | SwipeUpClean | 处理管理名单中的识别事件，清除 stopped 标志，不主动重新启动应用 |
 | DeviceIdle | 默认 observe；可选 enforce，仅撤销本模块添加的条目 |
+| PowerKeeper 原生专项 | ARM64 Zygisk 原生库与 Java DEX，按实际 OEM 方法逐项适配；没有兼容方法时仅该项降级；DNS UID 实验候选默认关闭 |
 | Magisk 状态 | 名称和描述显示状态灯，点击“操作”查看逐项原因并立即检查、重试适配 |
 
 不设机型限制不等于所有 ROM 都有相同接口。非 HyperOS 或缺少 OEM 接口的系统可能只运行部分功能；实际结果以状态报告为准。静态广播策略包含停止包标志处理，不能承诺完全保留原系统的 Force Stop 推送语义。
 
 ## 安装与升级
 
-1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
+1. 下载 Latest Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
 2. 备份 `/data/adb/fcm_unified_guard/`；若从旧 Millet Guard 迁移，同时保留旧名单与所有权记录。升级保留已有 `packages.list` 和 `unified.conf`，仅在首次没有配置时导入旧名单。
 3. 在 Magisk 中安装 ZIP。关闭旧 Millet Guard 的重复守护；若此前启用了 FCM Live/LSPosed 桥接，关闭对应功能，避免与静态策略重复处理。
 4. 将需要管理的应用逐行写入 `/data/adb/fcm_unified_guard/packages.list`。首次安装后正常重启，等待“自动适配中”变为“待重启生效”，再正常重启一次；已有可用缓存时可能无需这一步等待。
@@ -55,7 +62,7 @@ OTA 后首次启动可能暂处于基础模式。静态框架代码无法可靠�
 
 状态检查复用五分钟维护周期及 FCM 健康缓存，没有为状态灯增加常驻进程、AlarmManager 唤醒或专用唤醒锁。核心合并了日志订阅和维护定时循环，并过滤无关设置事件。系统变化后的框架生成会有一次性 CPU 与 I/O 开销，正常运行不会持续编译。
 
-已通过 34 项策略检查、严格字节码契约与按功能降级测试，以及 30 项 Linux 安装/启动/状态/OTA 重建流程测试。当前手机的隔离安装与原厂框架生成得到 10/10 功能，逐项 ART 校验通过；**这不等于新版已完成实际冷启动或真实 OTA 验收**。
+已通过 34 项策略检查、严格字节码契约与按功能降级测试，以及 30 项 Linux 安装/启动/状态/OTA 重建流程测试。当前 ARM64 / Android 17 设备已实际安装 alpha.7 并**正常完成两次重启**，10/10 框架功能以 bind-mount 与 SHA256 确认已加载，PowerKeeper 原生库已映射、Greeze GMS 限制已关闭，FCM 5228 已连接，未新增原生 tombstone。此前隔离实验中两个 OEM Hook 已实际触发，但不能直接将其视作集成版的方法级验证。
 
 端到端消息、跨机型和同条件电池 A/B 尚未完成，不能给出实测省电比例。CPU/RSS 采样也不能直接换算整机耗电。参见 [新版验证记录](static-patch/VALIDATION.md)；旧架构记录在 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
@@ -70,7 +77,7 @@ python static-patch/test-adaptive-runtime.py
 python static-patch/package.py
 ~~~
 
-安装包与校验文件输出到 `dist/`。包内不含 APK、LSPosed/Zygisk 桥接或预制厂商 JAR；厂商框架缓存只在设备本地生成。新版构建检查覆盖 `main` 和开发分支。
+以上命令只生成**静态核心子组件**（alpha.6），不等于集成版安装包。当前 Latest 的集成构建还需要按 `powerkeeper-runtime/build-native.sh` 生成 **关闭实验诊断**的 ARM64 Zygisk 库、按 `powerkeeper-runtime/build.py` 生成 DEX，最后通过 `powerkeeper-runtime/package_unified_candidate.py` 与静态核心打包；GitHub Actions 的 PowerKeeper 原生 CI 执行该流程。集成包不含 APK、LSPosed 桥接或预制厂商 JAR，厂商框架缓存仅在手机端生成。
 
 仓库保留了旧版集成桥接的 `module/`、`bridge-source/` 与根目录 `build.sh`；**根目录 `bash build.sh` 构建的是旧 v0.2.0 包**。旧版安装说明请查看 [v0.2.0 文档](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/blob/v0.2.0/README.md)，不要与新版步骤混用。
 
