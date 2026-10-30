@@ -162,12 +162,27 @@ jclass from_loader(JNIEnv* env,jobject loader,const char* name){
     env->DeleteLocalRef(cl);
     return static_cast<jclass>(result);
 }
-bool activate(JNIEnv* env){
+bool activate(JNIEnv* env,int trace_fd){
+    (void)trace_fd;
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+    stage_trace(trace_fd,"activate entered");
+#endif
     if(dex.empty()){
         msg(ANDROID_LOG_WARN,"Java bridge DEX is empty; skipping ART init");
         return false;
     }
-    if(!init_art(env))return false;
+    #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+    stage_trace(trace_fd,"ART init beginning");
+    #endif
+    if(!init_art(env)){
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+        stage_trace(trace_fd,"ART init failed");
+#endif
+        return false;
+    }
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+    stage_trace(trace_fd,"ART init succeeded");
+#endif
     msg(ANDROID_LOG_INFO,"ART init succeeded; preparing Java bridge");
     jbyteArray input=env->NewByteArray(static_cast<jsize>(dex.size()));
     if(!input){clear_error(env);msg(ANDROID_LOG_WARN,"Java bridge: failed to allocate DEX input");return false;}
@@ -207,6 +222,9 @@ bool activate(JNIEnv* env){
     }
     jboolean success=env->CallStaticBooleanMethod(cls,prepare,classes);
     bool failed=clear_error(env);
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+    stage_trace(trace_fd,failed?"Java bridge JNI exception":success?"attach hook prepared":"attach hook unavailable");
+#endif
     msg(failed || !success ? ANDROID_LOG_WARN : ANDROID_LOG_INFO,
         failed || !success ? "PowerKeeper hook bridge unavailable; FCM core independent"
                             : "PowerKeeper-only attach hook prepared; per-method checks follow app attach");
@@ -260,19 +278,30 @@ public:
         }
         if(!chosen_ || dex.empty()) {
             chosen_=false;
-#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-            if(trace_fd_>=0){close(trace_fd_);trace_fd_=-1;}
-#endif
             api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+        // A socket opened in pre-specialize is not guaranteed to survive
+        // app UID / SELinux specialization. Flush and close before crossing.
+        if(trace_fd_>=0){close(trace_fd_);trace_fd_=-1;}
+#endif
     }
     void postAppSpecialize(const zygisk::AppSpecializeArgs*) override {
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+        // The pre-specialize Companion socket was intentionally closed;
+        // establish a fresh companion from this app security context.
+        if(chosen_ && api_)trace_fd_=api_->connectCompanion();
         stage_trace(trace_fd_,"postAppSpecialize entered");
 #endif
         if(chosen_ && env_){
             msg(ANDROID_LOG_INFO,"PowerKeeper entered Zygisk postAppSpecialize");
-            bool active=activate(env_);
+            bool active=activate(env_,
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+                trace_fd_
+#else
+                -1
+#endif
+            );
             (void)active;
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
             stage_trace(trace_fd_,active?"bridge prepared":"bridge failed or not installed");
