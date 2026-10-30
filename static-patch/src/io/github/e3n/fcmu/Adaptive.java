@@ -5,7 +5,7 @@ import com.android.tools.smali.dexlib2.*;
 import com.android.tools.smali.dexlib2.iface.*;
 public final class Adaptive {
  static final String AM="Lcom/android/server/am/",GZ="Lcom/miui/server/greeze/";
- static final String[] KEYS={"ams.broadcast","greeze.allow","greeze.defer","greeze.limit","domestic.defer","broadcast.autostart","lists.constructor","lists.whitelist","network.constructor","process.whitelist"};
+ static final String[] KEYS={"ams.broadcast","greeze.allow","greeze.defer","greeze.limit","greeze.netstatus","domestic.defer","broadcast.autostart","lists.constructor","lists.whitelist","network.constructor","process.whitelist"};
  static final class Plan {
   final Map<String,ClassDef> classes=new LinkedHashMap<String,ClassDef>();
   final Map<String,List<Method>> methods=new LinkedHashMap<String,List<Method>>();
@@ -32,6 +32,7 @@ public final class Adaptive {
    field(p,AM+"ProcessRecord;","info","Landroid/content/pm/ApplicationInfo;");
   }
   if(key.equals("broadcast.autostart"))Patcher.validateClass(cls(p,AM+"BroadcastRecord;"));
+  if(key.equals("greeze.netstatus"))field(p,GZ+"GreezeManagerService;","mGmsNetStatus","Z");
   if(key.equals("greeze.limit")){
    List<Method> found=p.methods.get(key);
    boolean hasBoolean=false;

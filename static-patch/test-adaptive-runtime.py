@@ -2,7 +2,7 @@
 """Control-flow tests with mocked Android/VM/mounts; never a claim of real ART/OTA."""
 import argparse, os, pathlib, shutil, subprocess, tempfile, unittest
 ROOT=pathlib.Path(__file__).resolve().parent
-KEYS="ams.broadcast greeze.allow greeze.defer greeze.limit domestic.defer broadcast.autostart lists.constructor lists.whitelist network.constructor process.whitelist".split()
+KEYS="ams.broadcast greeze.allow greeze.defer greeze.limit greeze.netstatus domestic.defer broadcast.autostart lists.constructor lists.whitelist network.constructor process.whitelist".split()
 
 class RuntimeTests(unittest.TestCase):
  def setUp(self):

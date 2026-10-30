@@ -70,7 +70,7 @@ esac
 # The static backend currently patches services.jar + miui-services.jar only.
 # PowerKeeper APK-local GmsObserver/NetdExecutor/Doze-list hooks from the
 # former LSPosed module are NOT equivalent and must not be hidden behind 10/10.
-emit GRAY POWERKEEPER "Legacy PowerKeeper GMS alarm/network/wakelock, firewall and Doze-list hooks are not ported; framework count excludes them"
+emit GRAY POWERKEEPER "Greeze GMS network-state endpoint adapted when available; PowerKeeper APK-local observer/Doze-list hooks are not ported or included in framework count"
 idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
 if printf '%s\n' "$idle" | grep -Eq '^(system|user),com[.]google[.]android[.]gms,'; then
   emit GREEN DEVICEIDLE "native GMS exemption present"

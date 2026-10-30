@@ -21,7 +21,7 @@ public final class Patcher {
  static String methodId(Method m){return m.getDefiningClass()+"->"+m.getName()+sig(m);}
  static final String[] SYSTEM_CLASSES={"Lcom/android/server/am/ActivityManagerService;","Lcom/android/server/am/ProcessRecord;","Lcom/android/server/am/BroadcastRecord;"};
  static final String[] OEM_CLASSES={"Lcom/miui/server/greeze/GreezeManagerService;","Lcom/miui/server/greeze/DomesticPolicyManager;","Lcom/android/server/am/BroadcastQueueModernStubImpl;","Lcom/android/server/am/ProcessPolicy;","Lcom/miui/server/greeze/power/ListAppsManager;","Lcom/miui/server/greeze/power/AwareResourceControl;"};
- static String[] requiredMethods(boolean system){return system?new String[]{"ams.broadcast"}:new String[]{"greeze.allow","greeze.defer","greeze.limit","domestic.defer","broadcast.autostart","lists.constructor","lists.whitelist","network.constructor","process.whitelist"};}
+ static String[] requiredMethods(boolean system){return system?new String[]{"ams.broadcast"}:new String[]{"greeze.allow","greeze.defer","greeze.limit","greeze.netstatus","domestic.defer","broadcast.autostart","lists.constructor","lists.whitelist","network.constructor","process.whitelist"};}
  static void requireTargets(boolean system){
   for(String key:requiredMethods(system)){
    int n=counts.containsKey(key)?counts.get(key):0;
@@ -133,6 +133,18 @@ public final class Patcher {
     return prefix(m,"greeze.allow",ref("allowGreeze","Z",O,"I",S,"I",S,S),6,true,true);
    if(n.equals("deferBroadcastForMiui")&&s.equals("(Ljava/lang/String;)Z"))
     return prefix(m,"greeze.defer",ref("skipGreezeDefer","Z",O,S),2,true,false);
+   if(n.equals("updateGmsNetStatus")&&s.equals("(Z)Z")){
+    // Former E3N FCM Live forces false at the PowerKeeper caller.
+    // The current ROM's binder callee is the GreezeManagerService itself.
+    // Clamp this GMS-only boolean here, without modifying signed PowerKeeper.apk.
+    instanceMethod(m);
+    MutableMethodImplementation x=new MutableMethodImplementation(m.getImplementation());
+    int arg=x.getRegisterCount()-1;
+    if(arg<0||arg>255)throw new IllegalStateException("Unsupported GMS network status frame");
+    if(arg<=15)x.addInstruction(0,new BuilderInstruction11n(Opcode.CONST_4,arg,0));
+    else x.addInstruction(0,new BuilderInstruction21s(Opcode.CONST_16,arg,0));
+    hit("greeze.netstatus");return copy(m,x);
+   }
    if(n.equals("triggerGMSLimitAction")&&s.equals("(Z)V")){
     // Match the former LSPosed behavior: pass false to the original method.
     instanceMethod(m);
