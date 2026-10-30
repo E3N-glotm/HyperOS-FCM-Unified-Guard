@@ -121,10 +121,18 @@ public final class PowerKeeperRuntimePolicyTest {
         check(fromApk.contains("com.oem.otherpowerkeeper.provider.GlobalFeatureConfigureHelper"), "vendor Doze owner missing");
         Report custom=PowerKeeperRuntimePolicy.install(
                 PowerKeeperRuntimePolicyTest.class.getClassLoader(),fromApk,hook);
-        check(custom.installed()==1,"dynamic OEM class should hook only its compatible method");
+        check(custom.installed()==2,
+              "dynamic OEM GMS and Context-only Doze classes should both be hooked");
+        Object contextList = installed.get("com.oem.otherpowerkeeper.provider.GlobalFeatureConfigureHelper#getDozeWhiteListApps")
+                .invoke(new com.oem.otherpowerkeeper.provider.GlobalFeatureConfigureHelper(),
+                        new android.content.Context());
+        check(contextList instanceof List &&
+              ((List<?>)contextList).contains("com.google.android.gms") &&
+              ((List<?>)contextList).contains("com.example.original"),
+              "Context-only Doze must include GMS and preserve OEM immutable entries");
         com.oem.otherpowerkeeper.utils.GmsObserver vendor=new com.oem.otherpowerkeeper.utils.GmsObserver();
         installed.get("com.oem.otherpowerkeeper.utils.GmsObserver#updateGmsNetWork").invoke(vendor,true);
         check(!vendor.limited, "vendor runtime boolean not overridden");
-        System.out.println("PASS PowerKeeperRuntimePolicyTest: old/new/Doze/firewall/DNS unverified fail-closed/GMS-only verified UID/immutable list/variant/failure/core independence");
+        System.out.println("PASS PowerKeeperRuntimePolicyTest: old/new/Doze Bundle+Context/firewall/DNS unverified fail-closed/GMS-only verified UID/immutable list/variant/failure/core independence");
     }
 }
