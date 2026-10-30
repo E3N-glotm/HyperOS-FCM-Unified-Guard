@@ -238,14 +238,21 @@ soft_reconnect_if_stalled() {
   case "$scheduler_state" in
     overdue) soft_reason=overdue-scheduler ;;
     scheduled)
-      # An apparently scheduled alarm can still leave GMS disconnected for
-      # hours. A single native reconnect broadcast recovered the 2026-10-30
-      # 7h outage with the same GMS PID. Only try this fallback if the mtalk
-      # TCP route is confirmed, and rate-limit it to once every 30 minutes.
-      [ "$soft_outage" -ge 900 ] 2>/dev/null || return 1
-      [ -n "$(fcm_path_ready 2>/dev/null || true)" ] || return 1
-      soft_reason=long-outage-despite-scheduled-alarm
-      soft_gap=1800
+      # Incident 2026-10-31: the native reconnect alarm kept being deferred
+      # during cellular idle and the device remained disconnected for 47m.
+      # The former guard refused to send a SOFT reconnect unless raw TCP
+      # 5228:5230 was already reachable, even though GMS itself also falls
+      # back to HTTPS/443. This made a harmless recovery broadcast depend
+      # on the much stricter prerequisite intended for GMS process restarts.
+      # After 10m of real disconnection, require Android DNS resolution but
+      # NOT raw TCP 5228. Never bypass all GMS HTTPS/443, alter firewall
+      # policy or restart Play services on this path.
+      [ "$soft_outage" -ge 600 ] 2>/dev/null || return 1
+      [ -n "$(android_resolve_mtalk 2>/dev/null || true)" ] || return 1
+      soft_reason=scheduled-alarm-stalled-dns-ok
+      # At most one extra native scheduler retry per 15m of outage, using
+      # the existing 120s maintenance invocation (no new wake/alarm/thread).
+      soft_gap=900
       ;;
     missing)
       # Avoid racing the short window between one reconnect attempt and GMS
