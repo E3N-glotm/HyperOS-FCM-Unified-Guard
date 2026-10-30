@@ -21,7 +21,7 @@ jobs:
           java-version: '17'
       - name: Install Android SDK and NDK for experimental build
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370"
           python3 -m pip install --user cmake==3.31.6 ninja
       - name: Compile and test isolated Java policy/Dex bridge
         run: |
@@ -32,7 +32,7 @@ jobs:
       - name: Build PowerKeeper-process-only Zygisk candidate
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/30.0.16248370"
           bash powerkeeper-runtime/build-native.sh
           file powerkeeper-runtime/build/native/libfcmu_pk.so
       - uses: actions/upload-artifact@v4

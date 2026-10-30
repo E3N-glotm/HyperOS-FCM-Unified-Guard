@@ -31,7 +31,7 @@ native/Bridge.cpp 提供只针对 PowerKeeper 进程的 Zygisk 装载入口：�
 native/ArtSymbols.cpp 提供原生 libart ELF 符号解析，如果所在设备剥离了需要的符号，
 则该候选功能失败关闭而不影响 Magisk 核心。这是旧版/新版跨 ROM 适配的一项重要不确定性。
 
-目前已用 Android NDK r27 对 native/Bridge.cpp 与 native/ArtSymbols.cpp
+已用 Android NDK r27 对 native/Bridge.cpp 与 native/ArtSymbols.cpp
 执行 arm64 C++23 语法检查通过，但尚未完成 LSPlant / Dobby 的整体链接及设备侧 Hook 验证。
 GitHub 的 powerkeeper-native-experiment 工作流仅能手动触发，
 生成的二进制属于非安装式调试产物，不属于正式模块 Release。
@@ -66,3 +66,6 @@ GitHub 的 powerkeeper-native-experiment 工作流仅能手动触发，
 - 动态加载目标应用 ClassLoader 后再装 Hook，找不到接口只降级本项。
 - Magisk 无 Zygisk 时，核心可独立运行；不修改任何签名 PowerKeeper.apk 或 GMS Token。
 - 必须通过 Android 17 实机 ART Hook、冷启动无崩溃、网络状态读回一致、锁屏通知真实送达及长时间续航基线测试，才考虑正式发布。
+
+CI 原生完整链接改用 NDK r30，以解决 r28 Clang 19 对旧版 LSPlant
+复杂 C++23 模板的编译问题。该更改不影响用户设备的 Android 版本兼容性判断。
