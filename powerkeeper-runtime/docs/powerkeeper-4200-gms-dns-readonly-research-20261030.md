@@ -42,6 +42,13 @@
 - 网络 DNS/规则只对 GMS UID 且有明确证据时修改，绝不全局关闭网络限制；
 - FCM 真消息送达、原生心跳 / NAT 存活、网络恢复路径及后台功耗。
 
+## 事件处理稳定性审计（统一模块）
+
+- 发现 `module/bin/settings_worker.sh` 原有逻辑：每个 Settings 事件立即处理一次，但若在 5 秒节流窗口内则直接丢弃后续事件，而不是安排尾部补偿。若 PowerKeeper 恰在窗口内重建白名单，理论上可直到 300 秒安全补查时才恢复 GMS 条目。
+- 已改为事件驱动的“首事件立即处理 + 2 秒合并窗口内最多一个 1 秒尾部一次性处理”。不新增常驻轮询、AlarmManager 定时器或唤醒锁；重复事件仍需测量实际 CPU 开销，不能据此宣称整体功耗降低。
+- 新增 `tests/test_settings_trailing_reconcile.sh`：模拟同一秒内两个 `settings_system.xml` 事件，验证第二个事件仍有 `inotify-deferred` 处理，且执行 Binder 命令时不继承事件 FIFO 标准输入。已纳入统一核心 CI。
+- 这项修复与 OEM ART Hook 独立，即使新 ROM 完全没有可用的 PowerKeeper Hook，Millet/Greeze 的 GMS 名单仍应当能正常维护。
+
 ## 下一步测试门槛
 
 - 在具备备用机/回退通道时，对新 DNS UID 候选先只记录调用参数与真实 GMS UID；不得立即启用行为修改。
