@@ -74,6 +74,10 @@ jobs:
                   assert b"disable" in z.read(name)
           print("EXPERIMENT_PACKAGE_FAIL_CLOSED_OK")
           PY
+          python3 powerkeeper-runtime/stage_experiment_usb.py \
+            --zip /tmp/fcmu-ci-disabled-experiment.zip \
+            --sha256 "$(sha256sum /tmp/fcmu-ci-disabled-experiment.zip | cut -d ' ' -f1)" \
+            --check-only
       - uses: actions/upload-artifact@v4
         with:
           name: powerkeeper-zygisk-experimental-not-installable
