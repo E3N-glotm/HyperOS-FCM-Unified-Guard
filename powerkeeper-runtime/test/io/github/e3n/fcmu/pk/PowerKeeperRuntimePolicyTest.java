@@ -33,6 +33,44 @@ public final class PowerKeeperRuntimePolicyTest {
                 PowerKeeperRuntimePolicyTest.class.getClassLoader(),
                 PowerKeeperRuntimePolicy.defaultCandidates(), hook);
         check(report.installed()==6,"legacy + modern + Doze six hooks should be installed");
+        // Matching a vendor method signature does NOT grant permission to
+        // manipulate the device DNS firewall. This remains off by default.
+        check("candidate_unverified".equals(report.results().get("pk.firewall.gmsDnsUidRule")),
+              "DNS candidate must be visible but not automatically enabled");
+        check(!installed.containsKey("com.miui.powerkeeper.utils.NetdExecutor#setGmsDnsBlockerState"),
+              "default policy must not hook unverified vendor DNS methods");
+
+        Report unknownUid = PowerKeeperRuntimePolicy.install(
+                PowerKeeperRuntimePolicyTest.class.getClassLoader(),
+                Arrays.asList("com.miui.powerkeeper.utils.NetdExecutor"), hook, -1, true);
+        check(unknownUid.installed()==1 &&
+              "candidate_unverified".equals(unknownUid.results().get("pk.firewall.gmsDnsUidRule")),
+              "no UID = fail-closed, even if semantics claimed verified");
+
+        // A later runtime semantic verifier may explicitly enable the
+        // GMS-only DNS method. Test that non-GMS UIDs are not modified.
+        final int gmsUid = 10139;
+        Report verifiedDns = PowerKeeperRuntimePolicy.install(
+                PowerKeeperRuntimePolicyTest.class.getClassLoader(),
+                Arrays.asList("com.miui.powerkeeper.utils.NetdExecutor"), hook, gmsUid, true);
+        check(verifiedDns.installed()==2 &&
+              "hook_installed".equals(verifiedDns.results().get("pk.firewall.gmsDnsUidRule")),
+              "verified DNS and legacy firewall should install independently");
+        Installed dns = installed.get("com.miui.powerkeeper.utils.NetdExecutor#setGmsDnsBlockerState");
+        check(dns != null, "verified UID-specific DNS Hook missing");
+        dns.invoke(null, gmsUid, true);
+        check(com.miui.powerkeeper.utils.NetdExecutor.lastDnsUid==gmsUid &&
+              !com.miui.powerkeeper.utils.NetdExecutor.lastDnsDenied,
+              "verified GMS UID must not receive a deny rule");
+        dns.invoke(null, 10140, true);
+        check(com.miui.powerkeeper.utils.NetdExecutor.lastDnsUid==10140 &&
+              com.miui.powerkeeper.utils.NetdExecutor.lastDnsDenied,
+              "other UID rules must pass through unmodified");
+        dns.invoke(null, gmsUid, false);
+        check(!com.miui.powerkeeper.utils.NetdExecutor.lastDnsDenied &&
+              com.miui.powerkeeper.utils.NetdExecutor.dnsCallCount==3,
+              "existing GMS allow policy must preserve original side effects");
+
         com.miui.powerkeeper.utils.GmsObserver g = new com.miui.powerkeeper.utils.GmsObserver();
         check((Boolean)installed.get("com.miui.powerkeeper.utils.GmsObserver#updateFrameworkGmsNetStatus").invoke(g,true),"modern return preserved");
         check(!g.latest,"Gms network request must be false upstream");
@@ -87,6 +125,6 @@ public final class PowerKeeperRuntimePolicyTest {
         com.oem.otherpowerkeeper.utils.GmsObserver vendor=new com.oem.otherpowerkeeper.utils.GmsObserver();
         installed.get("com.oem.otherpowerkeeper.utils.GmsObserver#updateGmsNetWork").invoke(vendor,true);
         check(!vendor.limited, "vendor runtime boolean not overridden");
-        System.out.println("PASS PowerKeeperRuntimePolicyTest: old/new/Doze/firewall/immutable list/variant/failure/core independence");
+        System.out.println("PASS PowerKeeperRuntimePolicyTest: old/new/Doze/firewall/DNS unverified fail-closed/GMS-only verified UID/immutable list/variant/failure/core independence");
     }
 }
