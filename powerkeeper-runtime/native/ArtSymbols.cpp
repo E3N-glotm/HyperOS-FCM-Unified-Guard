@@ -5,6 +5,7 @@
 #include <cstring>
 #include <limits>
 #include <linux/xz.h>
+#include <mutex> // pre-suspend XZ CRC one-time initialization only
 #include <algorithm>
 
 namespace {
