@@ -2,11 +2,17 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module with an independent Millet/FCM guard and static framework policies generated on the device from available system interfaces. Current version: **v0.4.0-alpha.6**. No FCM Live APK, LSPosed or Zygisk is required.
+A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.7 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.7/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.7/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
+
+## v0.4.0-alpha.7: Integrated module, on-device validation
+
+On 2026-10-30 the module was installed on an ARM64 / Android 17 device and passed **two normal reboots**. All 10 adaptive framework features were actually mounted, Zygisk Next registered the module and the PowerKeeper process mapped its native library. GMS remained in the Millet/DeviceIdle exemptions, the Greeze limiter reported false, the FCM TCP/5228 connection was established, and no new native crashes were observed. A yellow Magisk status may mean the integrated PowerKeeper Java method hooks and true end-to-end message delivery are **not independently proven**, not that the framework failed to load.
+
+This build is the GitHub **Latest recommended download**, with the alpha version retained. Cross-ROM coverage, controlled real-message delivery, and long-term battery A/B testing remain outstanding. See the [on-device test report](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/15#issuecomment-6524287155) and the [integrated candidate guide](powerkeeper-runtime/docs/integrated-magisk-candidate-v040a7.md).
 
 ## Features and compatibility
 
@@ -19,13 +25,14 @@ There is no hardcoded device, Android/HyperOS version or ROM hash allowlist. Det
 | Static framework policies | Ten individually detected, generated and verified capabilities covering broadcasts, autostart, temporary exemptions, GMS restrictions and process/network lists |
 | SwipeUpClean | Clears the stopped flag for recognized events involving managed apps without actively relaunching them |
 | DeviceIdle | Observe by default; optional enforce mode removes only entries owned by this module |
+| PowerKeeper | ARM64 scoped Zygisk/Java ART runtime, discovers compatible OEM methods at runtime; missing methods degrade individually. The GMS UID-scoped DNS experiment remains disabled by default |
 | Magisk status | Health indicators in the module name/description; Action shows individual reasons and immediately checks/retries adaptation |
 
 Unrestricted installation does not imply identical functionality on every ROM. Systems without HyperOS/OEM interfaces may provide only partial functionality; consult the status report. Broadcast policy includes stopped-package flag handling, so unchanged Force Stop push semantics cannot be guaranteed.
 
 ## Installation and upgrades
 
-1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
+1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
 2. Back up `/data/adb/fcm_unified_guard/`. When migrating from Millet Guard, also preserve its package list and ownership records. Existing `packages.list` and `unified.conf` are retained during upgrades; legacy configuration is imported only when no current configuration exists.
 3. Install the ZIP in Magisk. Disable the duplicate legacy Millet Guard core. If FCM Live/LSPosed bridge features are enabled, disable the overlapping features to avoid duplicate policy handling.
 4. Put one managed package name per line in `/data/adb/fcm_unified_guard/packages.list`. After a fresh installation, reboot normally and wait for adaptation to finish and request a reboot, then reboot once more. An existing usable cache may avoid this generation step.
@@ -55,7 +62,7 @@ Hashes are calculated dynamically on the device for cache identity, integrity an
 
 Status checks reuse the five-minute maintenance cycle and FCM health cache. The indicators add no resident process, AlarmManager wakeup or dedicated wake lock. The core shares log subscriptions and maintenance timers and filters unrelated settings events. Framework generation after system changes incurs temporary CPU and I/O work; it does not compile continuously.
 
-Validation includes 34 policy checks, strict bytecode contracts, per-feature degradation tests and 30 Linux installation/boot/status/OTA-rebuild scenarios. An isolated installation and generation against the current phone's stock framework produced 10/10 capabilities with individual ART checks passing. **This does not establish successful cold activation of this build or a real OTA.**
+Validation includes 34 policy checks, strict bytecode contracts, per-feature degradation tests and 30 Linux installation/boot/status/OTA-rebuild scenarios. On an ARM64 / Android 17 device, alpha.7 was installed with Magisk and **survived two normal reboots**. All 10 framework capabilities were confirmed loaded by bind mounts and SHA-256; the PowerKeeper process mapped the Zygisk native library; the GMS limiter was disabled, TCP/5228 was connected and no new native tombstone occurred. A previous isolated experiment confirmed two OEM Java hooks firing, but that result is not by itself a method-level confirmation of the integrated ZIP.
 
 End-to-end push, cross-device testing and controlled battery A/B measurements remain pending. No measured battery-saving percentage is claimed; CPU/RSS samples cannot directly measure whole-device battery drain. See [current validation](static-patch/VALIDATION.md) and [legacy architecture records](docs/VALIDATION.md).
 
@@ -70,7 +77,7 @@ python static-patch/test-adaptive-runtime.py
 python static-patch/package.py
 ~~~
 
-The ZIP and checksum are written to `dist/`. The package contains no APK, LSPosed/Zygisk bridge or prebuilt vendor JAR. Vendor framework caches are generated only on the device. Current-build CI covers `main` and the development branch.
+These commands build only the **static core component** (alpha.6), not the latest integrated ZIP. To build alpha.7, compile the diagnostics-OFF ARM64 native Zygisk library using `powerkeeper-runtime/build-native.sh`, compile the Java DEX using `powerkeeper-runtime/build.py`, then combine them with the static core using `powerkeeper-runtime/package_unified_candidate.py` (as implemented by the native CI workflow). The integrated module includes a Zygisk native library and DEX, but no LSPosed bridge, APK or prebuilt OEM JAR. Vendor framework caches are created on the device.
 
 The repository retains the legacy bridge integration in `module/`, `bridge-source/` and the root `build.sh`. **Running root `bash build.sh` builds the old v0.2.0 package.** Consult [v0.2.0 documentation](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/blob/v0.2.0/README.md) for that version; do not mix its installation steps with the current module.
 
