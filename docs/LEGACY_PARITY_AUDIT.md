@@ -43,3 +43,11 @@
 2026-10-30 用户连续断联接近 7h，原因包含 `ping mtalk.google.com` 输出 canonical `mobile-gtalk.l.google.com` 导致 Guard DNS 误判；一次原生 GCM_RECONNECT 使 GMS PID 不变而连接恢复。已在 alpha.3 修正解析及软恢复，**但这不消除上述 PowerKeeper 等效性缺口**。
 
 若对端消息可靠性优先且新方案多次复现真实丢推送，先保留双模块作为可回退基线；不要同一时间同时启用两套后台守护与重复 LSPosed Hook。
+
+## 2026-10-30 现场核验及第 11 项候选的阻断结论
+
+- Android 17 / `pudding` / `OS4.0.5.0.XPCCNXM`、PowerKeeper 4.2.00。原厂 APK DEX 已逐类检查：旧版 `GmsObserver.updateFrameworkGmsNetStatus:(Z)Z` 存在；其它旧命名 `updateGmsAlarm`、`updateGmsNetWork`、`updateGoogleReletivesWakelock` 当前未找到。旧版 `NetdExecutor.initGmsChain` 未找到，但存在其它 DNS/防火墙处理入口；`getDozeWhiteListApps` 存在。
+- 现行稳定运行仍是 v0.4.0-alpha.3 / 10/10 / GcmService connected，不新增守护进程。静态 11 项候选在原厂 JAR 副本上离线生成和 ART 验证全通过，反汇编证实 `GreezeManagerService.updateGmsNetStatus(Z)Z` 的入参被改为 false；**没有安装或替换任何系统 JAR。**
+- **关键非等效：** 原 PowerKeeper 的 `GmsObserver.updateFrameworkGmsNetStatus` 会向 Greeze 发送本次请求的 boolean，随后调用 `getGmsNetStatus()`，要求“已接受且当前状态等于原请求”。如果只改下游 Greeze 的入参，PowerKeeper 请求 true 时会收到 false 状态，可能判定失败并重试。这与旧 E3N FCM Live 在 PowerKeeper 上游改请求参数的效果不同；可能增加 CPU/功耗或产生错误网络状态反馈。
+- 为避免“功能数通过”被误当“等效”，实验代码保留在 **Draft PR #7**，明确禁止直接合并/发布。11/11 DEX/ART 通过是技术可行性证据，**不是功能等效、推送成功率或功耗证据**。
+- 下一步优先查找不破坏 PowerKeeper 请求/反馈一致性的系统配置或原生 API；没有可信可验证接口前，不对 PowerKeeper.apk 或活动系统服务做未经验证的修改。原有 Magisk 模块保持正常运行。
