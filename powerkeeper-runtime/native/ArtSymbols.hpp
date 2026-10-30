@@ -3,7 +3,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <mutex>
 
 // Read-only ELF symbol lookup for the libart.so already loaded in this
 // process. Both the exact and prefix LSPlant symbol callbacks are supported.
@@ -11,6 +10,8 @@
 class ArtSymbols {
 public:
     ArtSymbols();
+    // All decompression and locking must precede ART thread suspension.
+    void prewarm();
     void* exact(std::string_view name) const;
     void* prefix(std::string_view name) const;
     bool ready() const { return load_bias_ && !image_.empty(); }
@@ -23,5 +24,4 @@ private:
     std::string path_;
     std::vector<std::uint8_t> image_;
     mutable std::vector<std::uint8_t> mini_elf_;
-    mutable std::once_flag debug_once_;
 };

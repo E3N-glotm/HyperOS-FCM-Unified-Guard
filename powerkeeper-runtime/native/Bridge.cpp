@@ -86,6 +86,8 @@ std::vector<std::string> read_classes(const std::string& report){
 bool init_art(JNIEnv* env){
     symbols=std::make_unique<ArtSymbols>();
     if(!symbols->ready()){symbols.reset();msg(ANDROID_LOG_WARN,"No ART symbols; PowerKeeper Hook disabled");return false;}
+    // ART callbacks execute under ScopedSuspendAll; prewarm all symbols now.
+    symbols->prewarm();
     lsplant::InitInfo cfg{};
     cfg.inline_hooker=[](void* target,void* replacement)->void*{
         dobby_dummy_func_t original=nullptr;

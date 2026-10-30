@@ -1,12 +1,10 @@
 #include "ArtSymbols.hpp"
-#include <dlfcn.h>
 #include <elf.h>
 #include <fstream>
 #include <sstream>
 #include <cstring>
 #include <limits>
 #include <linux/xz.h>
-#include <mutex>
 #include <algorithm>
 
 namespace {
@@ -58,19 +56,19 @@ ArtSymbols::ArtSymbols() {
         image_.clear();load_bias_=0;
     }
 }
-void* ArtSymbols::exact(std::string_view name) const {
-    std::string symbol(name);
-    if (void* dynamic=dlsym(RTLD_DEFAULT,symbol.c_str())) return dynamic;
-    return resolve(name,false);
+void ArtSymbols::prewarm() {
+    // libart .gnu_debugdata is XZ compressed on many Android releases.
+    // Do all I/O, malloc and CRC initialization BEFORE suspending ART:
+    // callbacks must not acquire linker locks or decode XZ under suspend.
+    if (ready()) (void)inflateMiniElf();
 }
+void* ArtSymbols::exact(std::string_view name) const { return resolve(name,false); }
 void* ArtSymbols::prefix(std::string_view name) const { return resolve(name,true); }
 void* ArtSymbols::resolve(std::string_view requested,bool prefix_match) const {
     if (!ready()) return nullptr;
     auto found=lookup(image_,requested,prefix_match);
-    if (!found) {
-        std::call_once(debug_once_,[this]{(void)inflateMiniElf();});
-        if (!mini_elf_.empty()) found=lookup(mini_elf_,requested,prefix_match);
-    }
+    if (!found && !mini_elf_.empty())
+        found=lookup(mini_elf_,requested,prefix_match);
     return found?reinterpret_cast<void*>(load_bias_+found):nullptr;
 }
 std::uintptr_t ArtSymbols::lookup(const std::vector<std::uint8_t>& elf,
