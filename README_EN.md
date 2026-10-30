@@ -2,17 +2,23 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.7 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
+A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.8 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.7/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.7/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.8/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.8/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
-## v0.4.0-alpha.7: Integrated module, on-device validation
+## v0.4.0-alpha.8: Integrated module, on-device validation
 
 On 2026-10-30 the module was installed on an ARM64 / Android 17 device and passed **two normal reboots**. All 10 adaptive framework features were actually mounted, Zygisk Next registered the module and the PowerKeeper process mapped its native library. GMS remained in the Millet/DeviceIdle exemptions, the Greeze limiter reported false, the FCM TCP/5228 connection was established, and no new native crashes were observed. A yellow Magisk status may mean the integrated PowerKeeper Java method hooks and true end-to-end message delivery are **not independently proven**, not that the framework failed to load.
 
 This build is the GitHub **Latest recommended download**, with the alpha version retained. Cross-ROM coverage, controlled real-message delivery, and long-term battery A/B testing remain outstanding. See the [on-device test report](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/15#issuecomment-6524287155) and the [integrated candidate guide](powerkeeper-runtime/docs/integrated-magisk-candidate-v040a7.md).
+
+## 2026-10-31: Cellular FCM heartbeat ACK timeout recovery
+
+A device log captured an MCS heartbeat timeout at 02:49 followed by roughly 48 minutes of failed reconnect attempts. The unified guard's native `GCM_RECONNECT` at 03:37 restored the MCS connection. The prior soft-recovery gate incorrectly required successful raw TCP 5228–5230 probing even though GMS may use HTTPS/443 fallback; this prerequisite belongs to the much more disruptive full GMS process restart.
+
+From `alpha.8`, a continuously disconnected GcmService with a stalled-but-scheduled reconnect alarm may receive a native soft reconnect **after 10 minutes if Android DNS works**, rate-limited to **one attempt per 15 minutes**. This reuses the existing maintenance worker: no added polling thread, wake lock, global GMS/443 firewall bypass, process kill, or WeChat token reset. It does not guarantee fixed-time recovery when the carrier connection, DNS, or device-idle scheduling is unavailable. See [fix PR #17](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/17).
 
 ## Features and compatibility
 
@@ -32,7 +38,7 @@ Unrestricted installation does not imply identical functionality on every ROM. S
 
 ## Installation and upgrades
 
-1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.7-integrated-candidate.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
+1. Download `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip` from Releases. GitHub's automatic Source code ZIP is not an installable module.
 2. Back up `/data/adb/fcm_unified_guard/`. When migrating from Millet Guard, also preserve its package list and ownership records. Existing `packages.list` and `unified.conf` are retained during upgrades; legacy configuration is imported only when no current configuration exists.
 3. Install the ZIP in Magisk. Disable the duplicate legacy Millet Guard core. If FCM Live/LSPosed bridge features are enabled, disable the overlapping features to avoid duplicate policy handling.
 4. Put one managed package name per line in `/data/adb/fcm_unified_guard/packages.list`. After a fresh installation, reboot normally and wait for adaptation to finish and request a reboot, then reboot once more. An existing usable cache may avoid this generation step.
