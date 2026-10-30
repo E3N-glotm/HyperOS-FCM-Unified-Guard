@@ -26,9 +26,9 @@ public final class CapabilityTest {
    method(c,"broadcastIntentWithFeature","I","Landroid/app/IApplicationThread;","Ljava/lang/String;","Landroid/content/Intent;","Ljava/lang/String;","Landroid/content/IIntentReceiver;","I","Ljava/lang/String;","Landroid/os/Bundle;","[Ljava/lang/String;","[Ljava/lang/String;","[Ljava/lang/String;","I","Landroid/os/Bundle;","Z","Z","I")));
   c=AM+"ProcessRecord;";r.put(c,cls(c,Arrays.asList(field(c,"info","Landroid/content/pm/ApplicationInfo;"))));
   c=AM+"BroadcastRecord;";r.put(c,cls(c,Arrays.asList(field(c,"callerPackage","Ljava/lang/String;"),field(c,"intent","Landroid/content/Intent;"))));
-  c=GZ+"GreezeManagerService;";r.put(c,cls(c,Arrays.asList(field(c,"mGmsLimitEnabled","Z")),
+  c=GZ+"GreezeManagerService;";r.put(c,cls(c,Arrays.asList(field(c,"mGmsLimitEnabled","Z"),field(c,"mGmsNetStatus","Z")),
    method(c,"isAllowBroadcast","Z","I","Ljava/lang/String;","I","Ljava/lang/String;","Ljava/lang/String;"),
-   method(c,"deferBroadcastForMiui","Z","Ljava/lang/String;"),method(c,"triggerGMSLimitAction","V")));
+   method(c,"deferBroadcastForMiui","Z","Ljava/lang/String;"),method(c,"triggerGMSLimitAction","V"),method(c,"updateGmsNetStatus","Z","Z")));
   c=GZ+"DomesticPolicyManager;";r.put(c,cls(c,Collections.<Field>emptyList(),method(c,"deferBroadcast","Z","Ljava/lang/String;")));
   c=AM+"BroadcastQueueModernStubImpl;";r.put(c,cls(c,Collections.<Field>emptyList(),method(c,"checkApplicationAutoStart","Z",AM+"BroadcastQueue;",AM+"BroadcastRecord;","Landroid/content/pm/ResolveInfo;")));
   c=AM+"ProcessPolicy;";r.put(c,cls(c,Collections.<Field>emptyList(),method(c,"getWhiteList","Ljava/util/List;","I")));

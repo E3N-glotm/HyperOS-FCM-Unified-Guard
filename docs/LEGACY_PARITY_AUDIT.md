@@ -43,3 +43,9 @@
 2026-10-30 用户连续断联接近 7h，原因包含 `ping mtalk.google.com` 输出 canonical `mobile-gtalk.l.google.com` 导致 Guard DNS 误判；一次原生 GCM_RECONNECT 使 GMS PID 不变而连接恢复。已在 alpha.3 修正解析及软恢复，**但这不消除上述 PowerKeeper 等效性缺口**。
 
 若对端消息可靠性优先且新方案多次复现真实丢推送，先保留双模块作为可回退基线；不要同一时间同时启用两套后台守护与重复 LSPosed Hook。
+
+## 后续独立增量：Greeze 网络状态入口（第 11 项）
+
+手机实测 HyperOS 4 PowerKeeper 4.2.00：`GmsObserver.updateFrameworkGmsNetStatus(Z)Z` 会经 `miui.greeze.IGreezeManager.updateGmsNetStatus(Z)Z` 将 GMS 网络限制状态传入 `GreezeManagerService.updateGmsNetStatus`。原 LSPosed 会将前者参数置为 false；新增可选静态能力 `greeze.netstatus` 将后者的 GMS 专用布尔入参置为 false，不修改签名 APK，不增加轮询。该项须独立验证字段 `mGmsNetStatus:Z`、方法签名和 ART，缺失则标记 unavailable。
+
+**验证边界：** 这是网络状态入口的一条下游等效路径；影响所有调用该 GMS 专用方法的调用者，运行时行为仍需真实限制触发场景证实。旧版 PowerKeeper `getDozeWhiteListApps` 以及其他可能更名的控制入口尚未完全迁移，不能以 11/11 宣称旧方案功能完全等效。正式发布前需要 ROM 离线适配与重启后的黑盒测试。
