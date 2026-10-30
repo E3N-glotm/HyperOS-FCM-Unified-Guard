@@ -10,6 +10,20 @@ i=0
 while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$i" -lt 180 ]; do sleep 2; i=$((i+1)); done
 [ "$(getprop sys.boot_completed)" = 1 ] || exit 0
 sleep 20
+# Acknowledge the actual completed boot independently of static framework
+# adaptation. Do not change the native quarantine state on failure.
+if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
+  current_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
+  recorded_boot=$(cat "$MODDIR/backend/pk-boot.pending" 2>/dev/null)
+  if [ -n "$current_boot" ] && [ "$current_boot" = "$recorded_boot" ]; then
+    rm -f "$MODDIR/backend/pk-boot.pending"
+    printf '%s\n' "boot completed; PowerKeeper Zygisk startup acknowledged" > "$MODDIR/backend/pk-boot.status"
+  fi
+  # Update target package list and read-only method reports ONCE per boot.
+  # This prepares the next boot; it never restarts PowerKeeper or GMS.
+  /system/bin/sh "$MODDIR/bin/powerkeeper_processes.sh" </dev/null >/dev/null 2>&1 || true
+  /system/bin/sh "$MODDIR/bin/powerkeeper_probe.sh" </dev/null >"$MODDIR/backend/powerkeeper-probe-last.txt" 2>&1 || true
+fi
 if cache_load && cache_payload_ok && cache_mounted; then
   rm -f "$MODDIR/backend/pending"
   backend_note ACTIVE "framework cache loaded; delivery still needs real-message observation"
