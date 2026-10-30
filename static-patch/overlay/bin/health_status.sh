@@ -15,15 +15,37 @@ emit() {
   case "$1" in RED) level=2;; YELLOW) [ "$level" -ge 1 ] || level=1;; esac
 }
 : > "$OUT"
-core_ok=1
+# Maintenance owns the FCM 120s check and 300s reconciliation safety pass.
+# Settings and logcat listeners are latency optimizations, not the base core.
+core_missing=
+core_critical=0
 for worker_name in settings maintenance events; do
+  worker_alive=0
   if read -r worker_pid worker_start 2>/dev/null < "$RUNDIR/$worker_name.pid" &&
-      [ -n "$worker_start" ] && [ "$(worker_ticks "$worker_pid")" = "$worker_start" ]; then :;
-  else core_ok=0; fi
+     [ -n "$worker_start" ] && [ "$(worker_ticks "$worker_pid")" = "$worker_start" ]; then
+    worker_alive=1
+  fi
+  if [ "$worker_alive" != 1 ]; then
+    core_missing="${core_missing:+$core_missing,}$worker_name"
+    [ "$worker_name" != maintenance ] || core_critical=1
+  fi
 done
-if [ "$core_ok" = 1 ]; then emit GREEN CORE "three guard workers running"; else
-  emit RED CORE "guard worker missing or legacy conflict; see startup-status.txt"
+core_startup=
+if [ -r "$RUNDIR/startup-status.txt" ]; then
+  IFS= read -r core_startup < "$RUNDIR/startup-status.txt" || true
 fi
+case "$core_startup" in
+  CONFLICT:*) emit RED CORE "legacy module conflict: $core_startup";;
+  DISABLED:*) emit RED CORE "base guard disabled: $core_startup";;
+  *)
+    if [ "$core_critical" = 1 ]; then
+      emit RED CORE "FCM maintenance worker missing; missing workers: $core_missing; inspect PID and startup logs"
+    elif [ -n "$core_missing" ]; then
+      emit YELLOW CORE "maintenance running; optional event listeners missing: $core_missing; 120s FCM / 300s safety fallback available"
+    else
+      emit GREEN CORE "three guard workers running"
+    fi;;
+esac
 # Guard poll (120s) and Magisk status refresh (300s) run independently.
 # The status refresh may land immediately BEFORE the next successful FCM
 # observation and publish "FCM unknown" for five more minutes. If the cached
