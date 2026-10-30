@@ -1,0 +1,6 @@
+build/
+out/
+*.so
+*.o
+third_party/
+dependency-versions.txt

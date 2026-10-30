@@ -90,9 +90,39 @@ if [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
   # are metadata, NOT hookable method signatures. Do not count them as hooks.
   pk_present=$(awk -F '\t' '$1 ~ /^pk\./ && $1!="pk.apk" && $1!="pk.gms.observer" && $1!="pk.gms.binder_chain" && $1!="pk.equivalence" && $2=="present" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
   pk_variant=$(awk -F '\t' '$1 ~ /^pk\./ && $1!="pk.apk" && $1!="pk.gms.observer" && $1!="pk.gms.binder_chain" && $1!="pk.equivalence" && $2=="variant" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
-  emit GRAY POWERKEEPER "read-only APK probe: $pk_present detected method signatures, $pk_variant variants; 0 PowerKeeper runtime hooks enabled; excluded from framework count"
+  pk_probe_label="$pk_present detected method signatures, $pk_variant variants"
 else
-  emit GRAY POWERKEEPER "APK signatures not scanned; open Magisk Action to inspect; no runtime hooks"
+  pk_probe_label="APK capabilities not yet scanned"
+fi
+# Zygisk mapping is proof of native loading, not of ART Hook installation,
+# method execution, Greezer state or FCM message delivery.
+if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
+  if [ -f "$MODDIR/backend/powerkeeper-hook.disable" ]; then
+    emit YELLOW POWERKEEPER "native runtime quarantined after unacknowledged boot; FCM guard remains enabled; $pk_probe_label"
+  else
+    pk_mapped=0
+    pk_pid=
+    if [ -r "$MODDIR/backend/powerkeeper-packages.list" ]; then
+      while IFS= read -r pk_name; do
+        case "$pk_name" in ''|*[!A-Za-z0-9_.$]*) continue;; esac
+        pk_pid=$(pidof "$pk_name" 2>/dev/null | awk '{print $1}')
+        [ -n "$pk_pid" ] || continue
+        if grep -Fq '/fcm_unified_guard/zygisk/arm64-v8a.so' "/proc/$pk_pid/maps" 2>/dev/null; then
+          pk_mapped=1
+          break
+        fi
+      done < "$MODDIR/backend/powerkeeper-packages.list"
+    fi
+    if [ "$pk_mapped" = 1 ]; then
+      emit YELLOW POWERKEEPER "native Zygisk library mapped; ART/OEM method coverage and delivery unverified; $pk_probe_label"
+    else
+      emit YELLOW POWERKEEPER "runtime bundled but OEM process injection not verified; check Zygisk / architecture; $pk_probe_label"
+    fi
+  fi
+elif [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
+  emit GRAY POWERKEEPER "read-only APK probe: $pk_probe_label; 0 PowerKeeper runtime hooks enabled (static-only build)"
+else
+  emit GRAY POWERKEEPER "PowerKeeper runtime not included; optional interface discovery unavailable"
 fi
 idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
 if printf '%s\n' "$idle" | grep -Eq '^(system|user),com[.]google[.]android[.]gms,'; then

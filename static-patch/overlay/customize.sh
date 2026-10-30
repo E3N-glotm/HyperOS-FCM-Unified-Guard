@@ -57,6 +57,12 @@ set_perm_recursive "$MODPATH" 0 0 0755 0644
 for f in "$MODPATH/"*.sh "$MODPATH/bin/"*.sh "$MODPATH/bin/milletctl"; do
   [ ! -f "$f" ] || set_perm "$f" 0 0 0755
 done
+# Some ROMs require a real system_lib_file label for Zygisk's arm64 .so.
+# Applying it to just our private payload does not affect system files.
+if [ -f "$MODPATH/zygisk/arm64-v8a.so" ]; then
+  chcon u:object_r:system_lib_file:s0 "$MODPATH/zygisk/arm64-v8a.so" 2>/dev/null || true
+  ui_print "- PowerKeeper arm64 native payload included; optional OEM Hook uses Zygisk, not LSPosed."
+fi
 if [ -d "$MODPATH/backend" ]; then
   find "$MODPATH/backend" -path '*/patched/*.jar' -exec chcon u:object_r:system_file:s0 {} \; 2>/dev/null || true
 fi

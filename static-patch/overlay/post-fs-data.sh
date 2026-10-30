@@ -2,6 +2,17 @@
 MODDIR=${0%/*}
 . "$MODDIR/bin/static_common.sh"
 mkdir -p "$MODDIR/backend"
+# A PowerKeeper-only unacknowledged boot is quarantined BEFORE Zygisk
+# app specialization. Never disable the whole Magisk module for this case.
+# Service clears the marker only after boot_completed=1 is observed.
+if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
+  if [ -f "$MODDIR/backend/pk-boot.pending" ]; then
+    touch "$MODDIR/backend/powerkeeper-hook.disable"
+    printf '%s\n' "previous boot not acknowledged: native PowerKeeper hook quarantined" > "$MODDIR/backend/pk-boot.status"
+  elif [ ! -f "$MODDIR/backend/powerkeeper-hook.disable" ]; then
+    cat /proc/sys/kernel/random/boot_id > "$MODDIR/backend/pk-boot.pending"
+  fi
+fi
 # Remove the previous boot's reboot instruction before any framework checks.
 backend_note CHECKING "checking cached framework for this boot"
 # An incomplete prior boot quarantines only that generated backend, never the
