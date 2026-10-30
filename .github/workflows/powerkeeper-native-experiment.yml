@@ -45,6 +45,35 @@ jobs:
           file powerkeeper-runtime/build/native/libfcmu_pk_selftest.so
       - name: Build isolated Android ART init driver
         run: python3 powerkeeper-runtime/build_init_test.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+      - name: Audit default-disabled one-shot experiment package (never released)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import hashlib
+          root = Path("powerkeeper-runtime/build")
+          with ZipFile("/tmp/fcmu-ci-source.zip", "w") as z:
+              for path in ["native/libfcmu_pk.so", "native/libfcmu_pk_selftest.so", "powerkeeper-runtime.dex"]:
+                  z.write(root / path, "build/" + path)
+          digest = hashlib.sha256(Path("/tmp/fcmu-ci-source.zip").read_bytes()).hexdigest()
+          Path("/tmp/fcmu-ci-source.sha256").write_text(digest)
+          PY
+          python3 powerkeeper-runtime/package_scoped_test.py \
+            --ci-zip /tmp/fcmu-ci-source.zip \
+            --ci-sha256 "$(cat /tmp/fcmu-ci-source.sha256)" \
+            --out /tmp/fcmu-ci-disabled-experiment.zip
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          with ZipFile("/tmp/fcmu-ci-disabled-experiment.zip") as z:
+              assert z.testzip() is None
+              assert "disable" in z.namelist()
+              assert "skip_mount" in z.namelist()
+              assert "zygisk/arm64-v8a.so" in z.namelist()
+              assert not any(x.startswith("system/") for x in z.namelist())
+              for name in ("post-fs-data.sh", "service.sh"):
+                  assert b"disable" in z.read(name)
+          print("EXPERIMENT_PACKAGE_FAIL_CLOSED_OK")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: powerkeeper-zygisk-experimental-not-installable
