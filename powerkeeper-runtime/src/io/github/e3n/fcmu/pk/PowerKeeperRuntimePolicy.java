@@ -162,7 +162,8 @@ public final class PowerKeeperRuntimePolicy {
                     };
                 } else if (owner.equals("doze") && method.getName().equals("getDozeWhiteListApps") &&
                         method.getParameterTypes().length == 1 &&
-                        method.getParameterTypes()[0].getName().equals("android.os.Bundle") &&
+                        (method.getParameterTypes()[0].getName().equals("android.os.Bundle") ||
+                         method.getParameterTypes()[0].getName().equals("android.content.Context")) &&
                         List.class.isAssignableFrom(method.getReturnType())) {
                     feature = "pk.doze.whitelist";
                     interceptor = new Interceptor() {
