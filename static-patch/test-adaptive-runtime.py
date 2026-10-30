@@ -108,23 +108,23 @@ esac
   (self.run/"events.pid").unlink()
   self.health()
   report=(self.run/"health-status.txt").read_text()
-  self.assertIn("YELLOW\\tCORE",report)
+  self.assertIn("YELLOW\tCORE",report)
   self.assertIn("optional event listeners missing: events",report)
-  self.assertNotIn("RED\\tCORE",report)
+  self.assertNotIn("RED\tCORE",report)
 
  def test_missing_fcm_maintenance_remains_red(self):
   self.build();self.boot();self.script("service.sh")
   (self.run/"maintenance.pid").unlink()
   self.health()
   report=(self.run/"health-status.txt").read_text()
-  self.assertIn("RED\\tCORE",report)
+  self.assertIn("RED\tCORE",report)
   self.assertIn("FCM maintenance worker missing",report)
 
  def test_core_legacy_conflict_not_hidden_by_stale_pid_records(self):
   self.build();self.boot();self.script("service.sh")
-  (self.run/"startup-status.txt").write_text("CONFLICT: Millet Guard active\\n")
+  (self.run/"startup-status.txt").write_text("CONFLICT: Millet Guard active\n")
   self.health()
-  self.assertIn("RED\\tCORE", (self.run/"health-status.txt").read_text())
+  self.assertIn("RED\tCORE", (self.run/"health-status.txt").read_text())
   self.assertIn("legacy module conflict", (self.run/"health-status.txt").read_text())
 
  def test_powerkeeper_subprocess_discovery_is_not_a_false_injection_claim(self):
@@ -134,16 +134,16 @@ esac
   (self.mod/"zygisk").mkdir()
   (self.mod/"zygisk/arm64-v8a.so").write_bytes(b"test native placeholder")
   (self.mod/"backend").mkdir(exist_ok=True)
-  (self.mod/"backend/powerkeeper-packages.list").write_text("com.miui.powerkeeper\\n")
+  (self.mod/"backend/powerkeeper-packages.list").write_text("com.miui.powerkeeper\n")
   self.env["TEST_PK_PROCESS_PID"]=str(os.getpid())
-  self.tool("pidof", "exit 1\\n")
+  self.tool("pidof", "exit 1\n")
   self.tool("ps", """if [ "$1" = -A ]; then
-    printf 'PID NAME\\n%s com.miui.powerkeeper:remote\\n' "$TEST_PK_PROCESS_PID"
+    printf 'PID NAME\n%s com.miui.powerkeeper:remote\n' "$TEST_PK_PROCESS_PID"
    fi
   """)
   self.health()
   report=(self.run/"health-status.txt").read_text()
-  self.assertIn("YELLOW\\tPOWERKEEPER",report)
+  self.assertIn("YELLOW\tPOWERKEEPER",report)
   self.assertIn("OEM process exists but native mapping unverified",report)
   self.assertNotIn("native library mapped in OEM process",report)
 
