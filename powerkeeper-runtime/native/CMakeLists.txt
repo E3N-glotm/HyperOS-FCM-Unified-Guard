@@ -6,6 +6,7 @@ get_filename_component(ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(VENDOR "${ROOT}/third_party")
 if(NOT EXISTS "${VENDOR}/lsplant/lsplant/src/main/jni/CMakeLists.txt"
    OR NOT EXISTS "${VENDOR}/dobby/CMakeLists.txt"
+   OR NOT EXISTS "${VENDOR}/xz-embedded/linux/lib/xz/xz_dec_stream.c"
    OR NOT EXISTS "${VENDOR}/zygisk/zygisk.hpp")
     message(FATAL_ERROR "Missing pinned optional dependencies. Run fetch-deps.sh first.")
 endif()
@@ -26,7 +27,21 @@ set(cxx_DIR "${CMAKE_CURRENT_LIST_DIR}/cxx-config" CACHE PATH "" FORCE)
 set(LSPLANT_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(DEBUG_SYMBOLS_PATH "${CMAKE_BINARY_DIR}/symbols" CACHE PATH "" FORCE)
 add_subdirectory("${VENDOR}/lsplant/lsplant/src/main/jni" "${CMAKE_BINARY_DIR}/lsplant")
+set(XZ "${VENDOR}/xz-embedded")
+add_library(xz_static STATIC
+    "${XZ}/linux/lib/xz/xz_crc32.c"
+    "${XZ}/linux/lib/xz/xz_crc64.c"
+    "${XZ}/linux/lib/xz/xz_dec_lzma2.c"
+    "${XZ}/linux/lib/xz/xz_dec_stream.c"
+)
+target_compile_definitions(xz_static PRIVATE XZ_USE_CRC64)
+target_include_directories(xz_static PUBLIC
+    "${XZ}/linux/include"
+    "${XZ}/linux/include/linux"
+    "${XZ}/userspace"
+)
 add_library(fcmu_pk SHARED Bridge.cpp ArtSymbols.cpp)
+target_compile_definitions(fcmu_pk PRIVATE XZ_USE_CRC64)
 target_include_directories(fcmu_pk PRIVATE "${VENDOR}/zygisk" "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_options(fcmu_pk PRIVATE -Wall -Wextra -Wno-c99-extensions)
-target_link_libraries(fcmu_pk PRIVATE dobby lsplant_static dex_builder_static log dl)
+target_link_libraries(fcmu_pk PRIVATE dobby lsplant_static dex_builder_static xz_static log dl)

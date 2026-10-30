@@ -19,11 +19,13 @@ git -C third_party/lsplant fetch --depth 1 origin "$LSPLANT_PIN"
 git -C third_party/lsplant checkout --detach "$LSPLANT_PIN"
 git -C third_party/lsplant submodule update --init --recursive --depth 1 lsplant/src/main/jni/external/dex_builder
 clone_if_missing https://github.com/LSPosed/Dobby.git third_party/dobby
+clone_if_missing https://github.com/tukaani-project/xz-embedded.git third_party/xz-embedded
 curl -fLsS --retry 2 https://raw.githubusercontent.com/topjohnwu/zygisk-module-sample/master/module/jni/zygisk.hpp -o third_party/zygisk/zygisk.hpp
 {
   echo "LSPlant $(git -C third_party/lsplant rev-parse HEAD)"
   echo "DexBuilder $(git -C third_party/lsplant/lsplant/src/main/jni/external/dex_builder rev-parse HEAD)"
   echo "Dobby $(git -C third_party/dobby rev-parse HEAD)"
+  echo "xz-embedded $(git -C third_party/xz-embedded rev-parse HEAD)"
   echo "ZygiskHeader $(sha256sum third_party/zygisk/zygisk.hpp | cut -d ' ' -f1)"
 } > dependency-versions.txt
 cat dependency-versions.txt
