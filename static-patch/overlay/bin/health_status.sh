@@ -123,22 +123,45 @@ if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
     emit YELLOW POWERKEEPER "native runtime quarantined after unacknowledged boot; FCM guard remains enabled; $pk_probe_label"
   else
     pk_mapped=0
-    pk_pid=
+    pk_running=0
+    pk_map_readable=0
+    pk_registry=unknown
+    if [ -r /data/adb/zygisksu/modules_info ] &&
+       grep -Eq '^fcm_unified_guard[[:space:]]' /data/adb/zygisksu/modules_info; then
+      pk_registry=registered
+    fi
     if [ -r "$MODDIR/backend/powerkeeper-packages.list" ]; then
+      # Only consider PackageManager-discovered OEM packages. Some HyperOS 3
+      # builds use package:process and do not keep a plain package process.
       while IFS= read -r pk_name; do
         case "$pk_name" in ''|*[!A-Za-z0-9_.$]*) continue;; esac
-        pk_pid=$(pidof "$pk_name" 2>/dev/null | awk '{print $1}')
-        [ -n "$pk_pid" ] || continue
-        if grep -Fq '/fcm_unified_guard/zygisk/arm64-v8a.so' "/proc/$pk_pid/maps" 2>/dev/null; then
-          pk_mapped=1
-          break
-        fi
+        pk_pids=$(pidof "$pk_name" 2>/dev/null || true)
+        pk_children=$(ps -A -o PID,NAME 2>/dev/null | awk -v name="$pk_name" '
+          NR>1 && $1 ~ /^[0-9]+$/ &&
+            ($2==name || index($2,name ":")==1) {print $1}
+        ')
+        for pk_pid in $pk_pids $pk_children; do
+          case "$pk_pid" in ''|*[!0-9]*) continue;; esac
+          [ -d "/proc/$pk_pid" ] || continue
+          pk_running=1
+          [ -r "/proc/$pk_pid/maps" ] || continue
+          pk_map_readable=1
+          if grep -Eq 'fcm_unified_guard.*/(zygisk/)?arm64-v8a[.]so' "/proc/$pk_pid/maps" 2>/dev/null; then
+            pk_mapped=1
+            break
+          fi
+        done
+        [ "$pk_mapped" != 1 ] || break
       done < "$MODDIR/backend/powerkeeper-packages.list"
     fi
     if [ "$pk_mapped" = 1 ]; then
-      emit YELLOW POWERKEEPER "native Zygisk library mapped; ART/OEM method coverage and delivery unverified; $pk_probe_label"
+      emit YELLOW POWERKEEPER "OEM process mapped native library; ART methods and real delivery still unverified; $pk_probe_label"
+    elif [ "$pk_running" = 0 ]; then
+      emit YELLOW POWERKEEPER "OEM process not running / not discoverable; Zygisk=$pk_registry; $pk_probe_label"
+    elif [ "$pk_map_readable" = 0 ]; then
+      emit YELLOW POWERKEEPER "OEM process exists but maps inaccessible; Zygisk=$pk_registry; $pk_probe_label"
     else
-      emit YELLOW POWERKEEPER "runtime bundled but OEM process injection not verified; check Zygisk / architecture; $pk_probe_label"
+      emit YELLOW POWERKEEPER "OEM process exists but native mapping unverified; Zygisk=$pk_registry; $pk_probe_label"
     fi
   fi
 elif [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
