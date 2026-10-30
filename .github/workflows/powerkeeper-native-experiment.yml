@@ -39,6 +39,7 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/30.0.16248370"
+          export FCMU_PK_EXPERIMENT_DIAGNOSTICS=ON
           bash powerkeeper-runtime/build-native.sh
           file powerkeeper-runtime/build/native/libfcmu_pk.so
           file powerkeeper-runtime/build/native/libfcmu_pk_selftest.so
