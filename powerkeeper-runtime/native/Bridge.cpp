@@ -4,6 +4,7 @@
 #include <dobby.h>
 #include <android/log.h>
 #include <fcntl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <jni.h>
@@ -23,24 +24,41 @@ bool art_ready=false;
 
 void msg(int level,const char* message){__android_log_write(level,kTag,message);}
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-// Experimental-only one-shot trace: no polling, no daemon and no logcat
-// dependency. The pre-specialize child opens the file before UID changes;
-// the same FD remains usable during post-specialize and is then closed.
-int open_experiment_trace() {
-    constexpr char path[]="/data/adb/fcmu_pk_experiment/zygisk-stage.tsv";
-    int fd=open(path,O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOFOLLOW,0600);
-    if(fd<0)return -1;
-    struct stat st{};
-    if(fstat(fd,&st)!=0 || st.st_size>262144){close(fd);return -1;}
-    return fd;
-}
+// One-shot diagnostic transport through the official Zygisk root Companion.
+// The child keeps a socket across specialize, never opens /data/adb itself.
+// A root-side Companion writes bounded data; no separate polling service.
 void stage_trace(int fd,const char* step) {
     if(fd<0 || !step)return;
-    constexpr size_t limit=160;
-    size_t length=strnlen(step,limit);
-    if(length>=limit)return;
-    (void)write(fd,step,length);
-    (void)write(fd,"\n",1);
+    constexpr std::size_t limit=160;
+    std::size_t length=strnlen(step,limit);
+    if(length==0 || length>=limit)return;
+    // Avoid SIGPIPE if a Companion is unavailable or the socket closes early.
+    (void)send(fd,step,length,MSG_NOSIGNAL);
+    (void)send(fd,"\n",1,MSG_NOSIGNAL);
+}
+void companion_trace(int client) {
+    constexpr char path[]="/data/adb/fcmu_pk_experiment/zygisk-stage.tsv";
+    int file=open(path,O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(file<0)return;
+    struct stat info{};
+    if(fstat(file,&info)!=0 || info.st_size>262144){
+        close(file);
+        return;
+    }
+    char buffer[256];
+    std::size_t total=0;
+    while(total<4096){
+        const auto remaining=std::min<std::size_t>(sizeof buffer,4096-total);
+        const ssize_t amount=read(client,buffer,remaining);
+        if(amount<=0)break;
+        total+=static_cast<std::size_t>(amount);
+        for(ssize_t pos=0;pos<amount;){
+            ssize_t written=write(file,buffer+pos,static_cast<std::size_t>(amount-pos));
+            if(written<=0){close(file);return;}
+            pos+=written;
+        }
+    }
+    close(file);
 }
 #endif
 bool clear_error(JNIEnv* env){
@@ -208,7 +226,7 @@ public:
         const bool diagnostic=process.find("powerkeeper")!=std::string::npos;
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
         if(diagnostic) {
-            trace_fd_=open_experiment_trace();
+            trace_fd_=api_->connectCompanion();
             stage_trace(trace_fd_,"preAppSpecialize entered");
         }
 #endif
@@ -272,6 +290,9 @@ private:
     int trace_fd_=-1;
 #endif
 };
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+REGISTER_ZYGISK_COMPANION(companion_trace)
+#endif
 REGISTER_ZYGISK_MODULE(ScopedPowerKeeper)
 
 #ifdef FCMU_ART_ISOLATED_TEST
