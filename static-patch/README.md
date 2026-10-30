@@ -1,4 +1,4 @@
-# HyperOS FCM Unified Guard v0.4.0-alpha.3
+# HyperOS FCM Unified Guard v0.4.0-alpha.4
 
 单个 Magisk 模块，保留 Millet/FCM 基础守护，并按当前框架可用能力生成静态策略；无需 FCM Live APK、LSPosed 或 Zygisk。
 
@@ -77,3 +77,10 @@ python static-patch/package.py
 Magisk 操作页新增只读的 PowerKeeper DEX 探测器。它根据 `pm path` 和安装包列表发现当前设备的 APK，解析全部 `classes*.dex`，按方法签名检查 GmsObserver、NetdExecutor、Doze 相关功能，而不是依据机型代号、HyperOS 版本或 ROM 哈希做白名单。每项报告 `present` / `variant` / `missing` / `unknown`；无法访问 APK、没有 PowerKeeper、DEX 读取失败都不会禁用基础 FCM 守护。
 
 注意：此功能只探测接口，**不会安装 Hook、修改 PowerKeeper、添加后台进程或监控线程**。即使某项显示 `present`，也只代表 DEX 中找到兼容签名，不代表旧 FCM Live 行为已经等效。探测按需从模块“操作”执行，健康检查仅读取缓存，不在每次定时检查时反复解析 APK。
+
+## v0.4.0-alpha.4 新增跨 ROM 兼容诊断
+
+- Magisk 操作页按已安装 APK 自动读取 PowerKeeper 接口，识别旧版及不同 ROM 的方法签名，而不是按机型/系统版本白名单截断。
+- 独立报告 `present`、`variant`、`unknown`、`missing`。没有 PowerKeeper、缺少 ART、APK 不可读都保持基础 FCM 守护运行。
+- 探测器仅在用户点击操作时运行，常规定时检查只读取上次报告，不增加常驻工作进程。此版本**没有集成 PowerKeeper ART Hook**，不能宣称旧 Millet Guard + FCM Live 功能已经完全等效。
+- 对未识别的反射/间接 Binder 调用输出 unknown，不再误报 missing；跨 ROM 用例与离线真机探测已通过。
