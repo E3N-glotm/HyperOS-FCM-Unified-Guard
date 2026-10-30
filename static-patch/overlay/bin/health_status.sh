@@ -114,7 +114,7 @@ if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
       done < "$MODDIR/backend/powerkeeper-packages.list"
     fi
     if [ "$pk_mapped" = 1 ]; then
-      emit GRAY POWERKEEPER "native Zygisk library mapped into OEM process; ART method coverage and delivery unverified; $pk_probe_label"
+      emit YELLOW POWERKEEPER "native Zygisk library mapped; ART/OEM method coverage and delivery unverified; $pk_probe_label"
     else
       emit YELLOW POWERKEEPER "runtime bundled but OEM process injection not verified; check Zygisk / architecture; $pk_probe_label"
     fi
