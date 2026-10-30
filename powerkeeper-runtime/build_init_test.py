@@ -21,7 +21,7 @@ subprocess.run([str(jdk/"bin"/("javac"+exe)),"--release","8","-d",str(out),
  str(root/"test-device"/"ArtInitSelfTest.java")],check=True)
 subprocess.run([str(jdk/"bin"/("java"+exe)),"-cp",str(d8[-1]),
  "com.android.tools.r8.D8","--min-api","26","--lib",str(platforms[-1]),
- "--output",str(out),str(out/"ArtInitSelfTest.class")],check=True)
+ "--output",str(out),*map(str,sorted(out.glob("ArtInitSelfTest*.class")))],check=True)
 with zipfile.ZipFile(root/"build"/"art-init-test.jar","w",compression=zipfile.ZIP_DEFLATED) as jar:
     jar.write(out/"classes.dex","classes.dex")
 print("ART_INIT_TEST_DRIVER_BUILT (ISOLATED PROCESS ONLY)")
