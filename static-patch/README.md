@@ -1,4 +1,4 @@
-# HyperOS FCM Unified Guard v0.4.0-alpha.5
+# HyperOS FCM Unified Guard v0.4.0-alpha.6
 
 单个 Magisk 模块，保留 Millet/FCM 基础守护，并按当前框架可用能力生成静态策略；无需 FCM Live APK、LSPosed 或 Zygisk。
 
@@ -88,3 +88,7 @@ Magisk 操作页新增只读的 PowerKeeper DEX 探测器。它根据 `pm path` 
 ## v0.4.0-alpha.5 状态同步修复
 
 修复 FCM 长连接实际在线、静态框架已加载，但 Magisk 状态因缓存时序显示 `FCM未知` 的误报。现有 5 分钟周期只在缓存无效/过期时限时调用 GcmService，健康 UI 不再修改守护进程的观察文件。正常时无额外后台查询、无重启、无清除 GMS 数据。支持任意安装机型，不引入机型版本白名单。
+
+## v0.4.0-alpha.6 诊断误报修复
+
+当 Magisk 显示 FCM 在线、静态框架 10/10 已加载时，操作页以前可能仍输出 `capabilities.tsv unavailable; generation may have failed`。原因是操作脚本读取了可选的 `backend/last-capabilities.tsv` 而非当前实际加载代际的 `backend/<generation>/capabilities.tsv`。新版修复报告源，历史日志独立标识；`DEX_SPLIT_INDEX_OVERFLOW` 后面的 `ADAPTIVE_OK` 和 `VERIFY_OK` 证明该次恢复成功，不应被解释为当前异常。此外只统计 PowerKeeper **实际方法** 签名，不把 APK 和类元数据计入支持数量；动态 Hook 依旧为 0，不能与框架 10/10 混为一谈。此版本并不恢复旧版 PowerKeeper Hook。

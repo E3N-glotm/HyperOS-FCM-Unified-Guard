@@ -27,8 +27,8 @@ jobs:
           python static-patch/package.py
       - uses: actions/upload-artifact@v4
         with:
-          name: HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static
+          name: HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static
           path: |
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip.sha256
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip.sha256
           if-no-files-found: error

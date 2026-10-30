@@ -2,9 +2,9 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.5**，无需 FCM Live APK、LSPosed 或 Zygisk。
+单个 Magisk 模块，提供 Millet/FCM 基础守护，并根据当前系统接口在设备上生成静态框架策略。当前版本 **v0.4.0-alpha.6**，无需 FCM Live APK、LSPosed 或 Zygisk。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.5/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.5/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.6/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
@@ -25,7 +25,7 @@
 
 ## 安装与升级
 
-1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.5-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
+1. 下载 Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.6-static.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
 2. 备份 `/data/adb/fcm_unified_guard/`；若从旧 Millet Guard 迁移，同时保留旧名单与所有权记录。升级保留已有 `packages.list` 和 `unified.conf`，仅在首次没有配置时导入旧名单。
 3. 在 Magisk 中安装 ZIP。关闭旧 Millet Guard 的重复守护；若此前启用了 FCM Live/LSPosed 桥接，关闭对应功能，避免与静态策略重复处理。
 4. 将需要管理的应用逐行写入 `/data/adb/fcm_unified_guard/packages.list`。首次安装后正常重启，等待“自动适配中”变为“待重启生效”，再正常重启一次；已有可用缓存时可能无需这一步等待。
@@ -91,3 +91,7 @@ python static-patch/package.py
 ### v0.4.0-alpha.5：修复 FCM 在线却显示未知
 
 修复 2 分钟 FCM 状态采样与 5 分钟 Magisk 状态刷新不同时序下，可能出现 `FCM未知 / 部分功能适配中` 的误报。状态缓存缺失或超过 5 分钟时，在原健康检查周期中追加一次限时检测；有效缓存不增加 GMS 查询。健康页不再改写 FCM 守护进程的观察文件，避免覆盖同时到达的更新。此修复仅改变诊断同步，不更改已有的 10 项静态策略、不添加后台工作进程，也不代表 PowerKeeper 已与原双模块完全等效。
+
+### v0.4.0-alpha.6：修复“框架已加载但报告缺失”误报
+
+修复 Magisk「操作」页面错误读取仅在异常场景生成的 `backend/last-capabilities.tsv`，导致已成功挂载 `10/10` 的框架被提示 `capabilities.tsv unavailable; generation may have failed`。现在优先读取当前代际的 `backend/<generation>/capabilities.tsv`，把上次构建日志明确标记为历史记录；PowerKeeper 的 APK/类存在不再计入可调用方法签名数，显示 `0 runtime hooks` 以防误解。先执行 APK 探测，再生成同一次健康报告。**只修诊断，无新增 Hook、轮询、框架改写，不影响基础 FCM。**
