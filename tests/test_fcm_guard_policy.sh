@@ -17,10 +17,20 @@ grep -q 'android_resolve_mtalk' "$GUARD" \
   || fail "Android resolver path is not checked"
 grep -Fq '/^PING[[:space:]]+[^[:space:]]+[[:space:]]/' "$GUARD" \
   || fail "CNAME-safe mtalk resolver pattern missing"
-grep -q 'long-outage-despite-scheduled-alarm' "$GUARD" \
-  || fail "stalled scheduled alarm lacks bounded soft recovery"
-grep -q 'soft_gap=1800' "$GUARD" \
-  || fail "scheduled-alarm recovery must be rate limited"
+grep -q 'scheduled-alarm-stalled-dns-ok' "$GUARD" \
+  || fail "stalled scheduled alarm lacks DNS-validated soft recovery"
+grep -q 'soft_gap=900' "$GUARD" \
+  || fail "scheduled-alarm soft recovery must be rate limited to 15 minutes"
+grep -q '\[ "$soft_outage" -ge 600 \]' "$GUARD" \
+  || fail "scheduled-alarm soft recovery must wait 10 minutes"
+grep -q 'android_resolve_mtalk 2>/dev/null' "$GUARD" \
+  || fail "scheduled-alarm soft recovery must use the Android resolver"
+# Raw TCP route remains required for actual GMS SIGTERM, but not for the
+# recoverable GCM_RECONNECT broadcast (native GMS may fall back to 443).
+soft_function=$(sed -n '/^soft_reconnect_if_stalled() {/,/^}/p' "$GUARD")
+if printf '%s\n' "$soft_function" | grep -q 'fcm_path_ready'; then
+  fail "safe soft reconnect still improperly requires raw 5228 TCP path"
+fi
 # Real device prints PING mobile-gtalk.l.google.com (IP), not PING mtalk.google.com.
 for line in 'PING mtalk.google.com (74.125.10.1) 56(84) bytes of data.' \
   'PING mobile-gtalk.l.google.com (173.194.202.188) 56(84) bytes of data.'; do
