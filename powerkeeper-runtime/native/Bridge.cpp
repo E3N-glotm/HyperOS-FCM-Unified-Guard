@@ -198,9 +198,6 @@ bool activate(JNIEnv* env){
 
 class ScopedPowerKeeper final:public zygisk::ModuleBase {
 public:
-#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
-    ~ScopedPowerKeeper() override { if(trace_fd_>=0) close(trace_fd_); }
-#endif
     void onLoad(zygisk::Api* api,JNIEnv* env) override {api_=api;env_=env;}
     void preAppSpecialize(zygisk::AppSpecializeArgs* args) override {
         if(!args || !args->nice_name)return;
@@ -221,6 +218,7 @@ public:
             if(diagnostic) msg(ANDROID_LOG_WARN,"Target-like process could not obtain module dir");
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
             stage_trace(trace_fd_,"module_dir unavailable");
+            if(trace_fd_>=0){close(trace_fd_);trace_fd_=-1;}
 #endif
             api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
             return;
@@ -244,6 +242,9 @@ public:
         }
         if(!chosen_ || dex.empty()) {
             chosen_=false;
+#ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
+            if(trace_fd_>=0){close(trace_fd_);trace_fd_=-1;}
+#endif
             api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
     }
@@ -254,6 +255,7 @@ public:
         if(chosen_ && env_){
             msg(ANDROID_LOG_INFO,"PowerKeeper entered Zygisk postAppSpecialize");
             bool active=activate(env_);
+            (void)active;
 #ifdef FCMU_PK_EXPERIMENT_DIAGNOSTICS
             stage_trace(trace_fd_,active?"bridge prepared":"bridge failed or not installed");
 #endif
