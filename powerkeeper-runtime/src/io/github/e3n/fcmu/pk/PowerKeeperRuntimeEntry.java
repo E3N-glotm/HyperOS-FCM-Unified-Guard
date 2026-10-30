@@ -24,13 +24,17 @@ public final class PowerKeeperRuntimeEntry {
     private static volatile boolean attached;
     private static String[] candidates = new String[0];
     private static volatile Context auditContext;
+    // The native Zygisk experiment build supplies this marker explicitly.
+    // Ordinary/production builds never enable application-private trace I/O.
+    private static final String DIAGNOSTIC_MARKER = "__FCMU_PK_EXPERIMENT_DIAGNOSTICS_ONLY__";
+    private static volatile boolean diagnosticAuditEnabled;
     private PowerKeeperRuntimeEntry() {}
 
     // Experimental-only Java runtime audit. This entry class is not included
     // in the shipped static Magisk baseline; no service or polling is used.
     // Device-protected app-private storage is safe before CE unlock.
     private static void experimentalAudit(Context context, String line) {
-        if (context == null || line == null) return;
+        if (!diagnosticAuditEnabled || context == null || line == null) return;
         try {
             Context de = context.createDeviceProtectedStorageContext();
             File dir = de.getFilesDir();
@@ -51,7 +55,17 @@ public final class PowerKeeperRuntimeEntry {
 
     public static synchronized boolean prepare(String[] discoveredClasses) {
         if (attached) return true;
-        candidates = discoveredClasses == null ? new String[0] : discoveredClasses.clone();
+        List<String> sanitized = new ArrayList<String>();
+        diagnosticAuditEnabled = false;
+        if (discoveredClasses != null) {
+            for (String name : discoveredClasses) {
+                if (DIAGNOSTIC_MARKER.equals(name))
+                    diagnosticAuditEnabled = true;
+                else if (name != null)
+                    sanitized.add(name);
+            }
+        }
+        candidates = sanitized.toArray(new String[0]);
         try {
             Method attach = Application.class.getDeclaredMethod("attach", Context.class);
             attach.setAccessible(true);
