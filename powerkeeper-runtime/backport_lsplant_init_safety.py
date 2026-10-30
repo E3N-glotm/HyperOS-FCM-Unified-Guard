@@ -112,10 +112,10 @@ def class_linker(src):
 def hook_helper(src):
     # A thread that reaches a partially published ART callback waits for Init
     # to finish. Reentry by the initializing thread remains permitted.
-    src = replace_once(src, "#include <array>\\n",
-        "#include <array>\\n#include <atomic>\\n#include <thread>\\n#include <utility>\\n",
+    src = replace_once(src, "#include <array>\n",
+        "#include <array>\n#include <atomic>\n#include <thread>\n#include <utility>\n",
         "hook_helper includes")
-    src = replace_once(src, "struct HookHandler {\\n",
+    src = replace_once(src, "struct HookHandler {\n",
         """struct HookHandler {
 private:
     inline static std::atomic<std::thread::id> initializing_{};
@@ -140,7 +140,7 @@ public:
         } while(owner!=std::thread::id{} && owner!=std::this_thread::get_id());
     }
 """, "hook_helper InitScope")
-    point = "template <typename F>\\nconcept Backup"
+    point = "template <typename F>\nconcept Backup"
     adapter = """// Strongly typed callback trampoline; no JNI, mutex or dynamic allocations.
 template <auto Function> struct WaitedCallback;
 template <typename R, typename... Args, R(*Function)(Args...)>
