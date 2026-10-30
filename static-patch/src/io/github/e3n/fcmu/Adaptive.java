@@ -23,15 +23,23 @@ public final class Adaptive {
  }
  static ClassDef cls(Plan p,String name){ClassDef c=p.classes.get(name);if(c==null)throw new IllegalStateException("missing class "+name);return c;}
  static void field(Plan p,String owner,String name,String type){Patcher.requireField(cls(p,owner),name,type);}
+ static void anyField(Plan p,String owner,String type,String... names){
+  Patcher.requireAnyField(cls(p,owner),type,names);
+ }
  static void dependencies(Plan p,String key){
   if(key.equals("ams.broadcast")){
    Patcher.validateClass(cls(p,AM+"ActivityManagerService;"));
    field(p,AM+"ProcessRecord;","info","Landroid/content/pm/ApplicationInfo;");
   }
   if(key.equals("broadcast.autostart"))Patcher.validateClass(cls(p,AM+"BroadcastRecord;"));
-  if(key.equals("greeze.limit"))field(p,GZ+"GreezeManagerService;","mGmsLimitEnabled","Z");
-  if(key.equals("lists.constructor"))field(p,GZ+"power/ListAppsManager;","SYSTEM_BLACK_LIST","Ljava/util/List;");
-  if(key.equals("lists.whitelist"))field(p,GZ+"power/ListAppsManager;","USE_DATA_WHITE_LIST","Ljava/util/Set;");
+  if(key.equals("greeze.limit")){
+   List<Method> found=p.methods.get(key);
+   boolean hasBoolean=false;
+   if(found!=null)for(Method m:found)if(Patcher.sig(m).equals("(Z)V"))hasBoolean=true;
+   if(!hasBoolean)field(p,GZ+"GreezeManagerService;","mGmsLimitEnabled","Z");
+  }
+  if(key.equals("lists.constructor"))anyField(p,GZ+"power/ListAppsManager;","Ljava/util/List;","mSystemBlackList","SYSTEM_BLACK_LIST");
+  if(key.equals("lists.whitelist"))anyField(p,GZ+"power/ListAppsManager;","Ljava/util/Set;","mUseDataWhiteList","USE_DATA_WHITE_LIST");
   if(key.equals("network.constructor"))field(p,GZ+"power/AwareResourceControl;","mNoNetworkBlackUids","Ljava/util/List;");
  }
  static Plan plan(File services,File oem,Set<String> excluded)throws Exception{
@@ -58,6 +66,14 @@ public final class Adaptive {
     if(excluded.contains(key))throw new IllegalStateException("ART check unavailable on this ROM");
     List<Method> ms=p.methods.get(key);
     if(ms==null||ms.isEmpty())throw new IllegalStateException("matching implementation unavailable");
+    if(key.equals("greeze.limit")&&ms.size()>1){
+     // Former LSPosed fork prefers boolean overload over no-arg variant.
+     Method preferred=null;
+     for(Method m:ms)if(Patcher.sig(m).equals("(Z)V"))preferred=m;
+     if(preferred==null)throw new IllegalStateException("ambiguous limiter overload");
+     ms=Collections.singletonList(preferred);
+     p.methods.put(key,ms);
+    }
     if(!key.endsWith("constructor")&&ms.size()!=1)throw new IllegalStateException("ambiguous target methods");
     dependencies(p,key);
     for(Method m:ms)p.admitted.add(Patcher.methodId(m));
