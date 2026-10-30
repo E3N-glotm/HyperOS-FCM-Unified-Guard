@@ -1,4 +1,4 @@
-# HyperOS FCM Unified Guard v0.4.0-alpha.4
+# HyperOS FCM Unified Guard v0.4.0-alpha.5
 
 单个 Magisk 模块，保留 Millet/FCM 基础守护，并按当前框架可用能力生成静态策略；无需 FCM Live APK、LSPosed 或 Zygisk。
 
@@ -78,9 +78,13 @@ Magisk 操作页新增只读的 PowerKeeper DEX 探测器。它根据 `pm path` 
 
 注意：此功能只探测接口，**不会安装 Hook、修改 PowerKeeper、添加后台进程或监控线程**。即使某项显示 `present`，也只代表 DEX 中找到兼容签名，不代表旧 FCM Live 行为已经等效。探测按需从模块“操作”执行，健康检查仅读取缓存，不在每次定时检查时反复解析 APK。
 
-## v0.4.0-alpha.4 新增跨 ROM 兼容诊断
+## v0.4.0-alpha.5 新增跨 ROM 兼容诊断
 
 - Magisk 操作页按已安装 APK 自动读取 PowerKeeper 接口，识别旧版及不同 ROM 的方法签名，而不是按机型/系统版本白名单截断。
 - 独立报告 `present`、`variant`、`unknown`、`missing`。没有 PowerKeeper、缺少 ART、APK 不可读都保持基础 FCM 守护运行。
 - 探测器仅在用户点击操作时运行，常规定时检查只读取上次报告，不增加常驻工作进程。此版本**没有集成 PowerKeeper ART Hook**，不能宣称旧 Millet Guard + FCM Live 功能已经完全等效。
 - 对未识别的反射/间接 Binder 调用输出 unknown，不再误报 missing；跨 ROM 用例与离线真机探测已通过。
+
+## v0.4.0-alpha.5 状态同步修复
+
+修复 FCM 长连接实际在线、静态框架已加载，但 Magisk 状态因缓存时序显示 `FCM未知` 的误报。现有 5 分钟周期只在缓存无效/过期时限时调用 GcmService，健康 UI 不再修改守护进程的观察文件。正常时无额外后台查询、无重启、无清除 GMS 数据。支持任意安装机型，不引入机型版本白名单。
