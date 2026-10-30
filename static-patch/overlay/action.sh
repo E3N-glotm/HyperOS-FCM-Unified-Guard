@@ -9,6 +9,8 @@ case "$phase" in
 esac
 /system/bin/sh "$MODDIR/bin/build_backend.sh" "$build_mode" </dev/null
 /system/bin/sh "$MODDIR/bin/health_status.sh" --fresh </dev/null
+echo '=== PowerKeeper 动态接口探测（仅扫描，不修改系统） ==='
+/system/bin/sh "$MODDIR/bin/powerkeeper_probe.sh" </dev/null || true
 echo '=== 基础守护 ==='
 cat /data/adb/fcm_unified_guard/startup-status.txt 2>/dev/null
 /system/bin/sh "$MODDIR/bin/deviceidle_policy.sh" status </dev/null

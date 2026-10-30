@@ -16,4 +16,5 @@ def main():
  run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.PatcherTest"])
  run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.CapabilityTest"])
  run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.AdaptiveTest"])
+ run([java,"-cp",os.pathsep.join([str(out),cp]),"io.github.e3n.fcmu.PowerKeeperProbeTest"])
 if __name__=="__main__":main()

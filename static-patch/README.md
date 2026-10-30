@@ -71,3 +71,9 @@ python static-patch/package.py
 - 静态 OEM DEX 超过 16 位索引上限时仅对该种写入失败执行分离重建，保留原文件未修改的类，单独生成修改类 DEX；仍经 DEX/ART 检查后才能启用。
 - 部分 ART 对 `-Xmx1024m` 启动异常，适配器改为 `-Xmx512m`。跨 ROM 效果仍取决于实际类、字段、ART 校验和冷启动结果。
 - 系统诊断中的 Greeze 和 Millet 状态分开检测，框架报告缺失显示未知而不是 `0/0`。
+
+## PowerKeeper 多机型兼容探测（源码新增，未发布）
+
+Magisk 操作页新增只读的 PowerKeeper DEX 探测器。它根据 `pm path` 和安装包列表发现当前设备的 APK，解析全部 `classes*.dex`，按方法签名检查 GmsObserver、NetdExecutor、Doze 相关功能，而不是依据机型代号、HyperOS 版本或 ROM 哈希做白名单。每项报告 `present` / `variant` / `missing` / `unknown`；无法访问 APK、没有 PowerKeeper、DEX 读取失败都不会禁用基础 FCM 守护。
+
+注意：此功能只探测接口，**不会安装 Hook、修改 PowerKeeper、添加后台进程或监控线程**。即使某项显示 `present`，也只代表 DEX 中找到兼容签名，不代表旧 FCM Live 行为已经等效。探测按需从模块“操作”执行，健康检查仅读取缓存，不在每次定时检查时反复解析 APK。
