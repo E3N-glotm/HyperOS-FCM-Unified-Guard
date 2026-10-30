@@ -90,7 +90,7 @@ if [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
   # are metadata, NOT hookable method signatures. Do not count them as hooks.
   pk_present=$(awk -F '\t' '$1 ~ /^pk\./ && $1!="pk.apk" && $1!="pk.gms.observer" && $1!="pk.gms.binder_chain" && $1!="pk.equivalence" && $2=="present" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
   pk_variant=$(awk -F '\t' '$1 ~ /^pk\./ && $1!="pk.apk" && $1!="pk.gms.observer" && $1!="pk.gms.binder_chain" && $1!="pk.equivalence" && $2=="variant" {n++} END {print n+0}' "$MODDIR/backend/powerkeeper-capabilities.tsv")
-  pk_probe_label="$pk_present signatures, $pk_variant variants"
+  pk_probe_label="$pk_present detected method signatures, $pk_variant variants"
 else
   pk_probe_label="APK capabilities not yet scanned"
 fi
