@@ -6,7 +6,11 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 mkdir -p "$T/module/bin" "$T/runtime" "$T/bin"
-sed "s|^RUNDIR=/data/adb/fcm_unified_guard|RUNDIR=$T/runtime|" \
+# MSYS /proc/uptime may be unavailable. Inject a deterministic host-only
+# uptime stream; production still uses the real Android /proc/uptime.
+printf '%s\n' '10000.00 12345.00' > "$T/runtime/uptime"
+sed -e "s|^RUNDIR=/data/adb/fcm_unified_guard|RUNDIR=$T/runtime|" \
+    -e "s|/proc/uptime|$T/runtime/uptime|g" \
     "$ROOT/module/bin/unified_event_worker.sh" > "$T/module/bin/unified_event_worker.sh"
 cp "$ROOT/module/bin/runtime_workers.sh" "$T/module/bin/runtime_workers.sh"
 printf '%s\n' com.google.android.gms > "$T/runtime/packages.list"
