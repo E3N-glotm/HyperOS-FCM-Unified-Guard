@@ -11,6 +11,7 @@ mkdir -p "$T/module/bin" "$T/runtime" "$T/bin"
 printf '%s\n' '10000.00 12345.00' > "$T/runtime/uptime"
 sed -e "s|^RUNDIR=/data/adb/fcm_unified_guard|RUNDIR=$T/runtime|" \
     -e "s|/proc/uptime|$T/runtime/uptime|g" \
+    -e 's|/system/bin/sh|/bin/sh|g' \
     "$ROOT/module/bin/unified_event_worker.sh" > "$T/module/bin/unified_event_worker.sh"
 cp "$ROOT/module/bin/runtime_workers.sh" "$T/module/bin/runtime_workers.sh"
 printf '%s\n' com.google.android.gms > "$T/runtime/packages.list"
