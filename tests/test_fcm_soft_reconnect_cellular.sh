@@ -43,14 +43,17 @@ count() { wc -l < "$TEST_BROADCAST" | tr -d ' '; }
 soft_reconnect_if_stalled 1000 599 >/dev/null 2>&1 && exit 21 || :
 [ "$(count)" = 0 ] || { echo 'broadcast before 10 minutes' >&2; exit 1; }
 
+# Restore the original v2.1.x Millet Guard distinction: the native
+# GCM_RECONNECT PendingIntent may be retriggered safely even while DNS is
+# unhealthy; process SIGTERM remains independently network-gated.
 soft_reconnect_if_stalled 1000 600 >/dev/null 2>&1 && exit 22 || :
-[ "$(count)" = 0 ] || { echo 'broadcast despite bad DNS' >&2; exit 1; }
+[ "$(count)" = 1 ] || { echo 'native soft reconnect incorrectly blocked on DNS failure' >&2; exit 1; }
+grep -q 'GCM_RECONNECT' "$TEST_BROADCAST"
+[ "$(cat "$SOFT_RECONNECT_FILE")" -eq 1000 ]
 
 TEST_DNS=ok
 soft_reconnect_if_stalled 1000 600 >/dev/null 2>&1 && exit 23 || :
-[ "$(count)" = 1 ] || { echo 'failed to send soft reconnect with DNS OK' >&2; exit 1; }
-grep -q 'GCM_RECONNECT' "$TEST_BROADCAST"
-[ "$(cat "$SOFT_RECONNECT_FILE")" -eq 1000 ]
+[ "$(count)" = 1 ] || { echo 'failed to honor existing soft recovery cooldown' >&2; exit 1; }
 
 soft_reconnect_if_stalled 1300 900 >/dev/null 2>&1 && exit 24 || :
 [ "$(count)" = 1 ] || { echo 'soft reconnect bypassed 15m cooldown' >&2; exit 1; }
@@ -64,9 +67,9 @@ TEST_DNS=fail
 TEST_SCHEDULER=missing
 soft_reconnect_if_stalled 2302 300 >/dev/null 2>&1 && exit 26 || :
 [ "$(count)" = 3 ] || { echo 'missing-alarm fallback regressed' >&2; exit 1; }
-grep -q 'scheduled-alarm-stalled-dns-ok' "$T/guard.log"
+grep -q 'scheduled-alarm-stalled-native-reconnect' "$T/guard.log"
 if grep -Eq 'kill -TERM|iptables|setuiddnsrule' "$TEST_BROADCAST"; then
   echo 'dangerous operation during soft reconnect' >&2
   exit 1
 fi
-echo 'PASS: stalled cellular MCS soft reconnect at 10m, DNS validated, 15m cooldown, no 5228 dependency or GMS restart'
+echo 'PASS: legacy native soft retry after 10m survives DNS failure, cooldown 15m, no 5228 dependency or GMS restart'

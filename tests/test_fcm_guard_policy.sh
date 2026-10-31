@@ -17,14 +17,18 @@ grep -q 'android_resolve_mtalk' "$GUARD" \
   || fail "Android resolver path is not checked"
 grep -Fq '/^PING[[:space:]]+[^[:space:]]+[[:space:]]/' "$GUARD" \
   || fail "CNAME-safe mtalk resolver pattern missing"
-grep -q 'scheduled-alarm-stalled-dns-ok' "$GUARD" \
-  || fail "stalled scheduled alarm lacks DNS-validated soft recovery"
+grep -q 'scheduled-alarm-stalled-native-reconnect' "$GUARD" \
+  || fail "stalled scheduled alarm lacks old-combination native soft recovery"
 grep -q 'soft_gap=900' "$GUARD" \
   || fail "scheduled-alarm soft recovery must be rate limited to 15 minutes"
 grep -q '\[ "$soft_outage" -ge 600 \]' "$GUARD" \
   || fail "scheduled-alarm soft recovery must wait 10 minutes"
-grep -q 'android_resolve_mtalk 2>/dev/null' "$GUARD" \
-  || fail "scheduled-alarm soft recovery must use the Android resolver"
+# The old Millet Guard treats GCM_RECONNECT as safe even when DNS is
+# unhealthy; only the separate SIGTERM recovery needs strict DNS + TCP proof.
+soft_function=$(sed -n '/^soft_reconnect_if_stalled() {/,/^}/p' "$GUARD")
+if printf '%s\n' "$soft_function" | grep -Eq 'fcm_path_ready|android_resolve_mtalk'; then
+  fail "native-only soft recovery must not be DNS/TCP-gated"
+fi
 # Raw TCP route remains required for actual GMS SIGTERM, but not for the
 # recoverable GCM_RECONNECT broadcast (native GMS may fall back to 443).
 soft_function=$(sed -n '/^soft_reconnect_if_stalled() {/,/^}/p' "$GUARD")
