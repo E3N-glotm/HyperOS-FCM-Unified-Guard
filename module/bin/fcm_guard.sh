@@ -244,14 +244,19 @@ soft_reconnect_if_stalled() {
       # 5228:5230 was already reachable, even though GMS itself also falls
       # back to HTTPS/443. This made a harmless recovery broadcast depend
       # on the much stricter prerequisite intended for GMS process restarts.
-      # After 10m of real disconnection, require Android DNS resolution but
-      # NOT raw TCP 5228. Never bypass all GMS HTTPS/443, alter firewall
-      # policy or restart Play services on this path.
+      # Restore old Millet Guard v2.1.x's safety distinction: an OEM-native
+      # GCM_RECONNECT broadcast is NOT a Google Play services process restart.
+      # GMS must be allowed to rebuild its own retry/backoff state even if its
+      # Android DNS resolver reports UNKNOWN_HOST. Last night's 93m outage had
+      # failures in both primary and alternative network paths, and the
+      # alpha.8 DNS gate could suppress a harmless soft recovery unnecessarily.
+      # Strict Android DNS + TCP 5228:5230 readiness is still mandatory for
+      # the separate last-resort SIGTERM path. Do not modify the global DNS,
+      # routing, firewall or Google Play services state here.
       [ "$soft_outage" -ge 600 ] 2>/dev/null || return 1
-      [ -n "$(android_resolve_mtalk 2>/dev/null || true)" ] || return 1
-      soft_reason=scheduled-alarm-stalled-dns-ok
-      # At most one extra native scheduler retry per 15m of outage, using
-      # the existing 120s maintenance invocation (no new wake/alarm/thread).
+      soft_reason=scheduled-alarm-stalled-native-reconnect
+      # Keep a 15-minute retry gap and reuse only existing event/poll wakes:
+      # no new wake alarm, polling thread, wakelock, token reset, or GMS kill.
       soft_gap=900
       ;;
     missing)
