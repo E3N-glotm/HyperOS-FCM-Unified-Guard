@@ -18,7 +18,7 @@ The existing **single logcat event worker** also recognizes native `gtalk_connec
 
 On 2026-10-30 the module was installed on an ARM64 / Android 17 device and passed **two normal reboots**. All 10 adaptive framework features were actually mounted, Zygisk Next registered the module and the PowerKeeper process mapped its native library. GMS remained in the Millet/DeviceIdle exemptions, the Greeze limiter reported false, the FCM TCP/5228 connection was established, and no new native crashes were observed. A yellow Magisk status may mean the integrated PowerKeeper Java method hooks and true end-to-end message delivery are **not independently proven**, not that the framework failed to load.
 
-This build is the GitHub **Latest recommended download**, with the alpha version retained. Cross-ROM coverage, controlled real-message delivery, and long-term battery A/B testing remain outstanding. See the [on-device test report](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/15#issuecomment-6524287155) and the [integrated candidate guide](powerkeeper-runtime/docs/integrated-magisk-candidate-v040a7.md).
+This alpha.8 build is the previous on-device baseline; the **Latest recommended download is now alpha.9**, with the alpha designation retained. Cross-ROM coverage, controlled real-message delivery, and long-term battery A/B testing remain outstanding. See the [on-device test report](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/15#issuecomment-6524287155) and the [integrated candidate guide](powerkeeper-runtime/docs/integrated-magisk-candidate-v040a7.md).
 
 ## 2026-10-31: Cellular FCM heartbeat ACK timeout recovery
 
