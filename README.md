@@ -18,7 +18,7 @@
 
 2026-10-30 已在 ARM64 / Android 17 手机上通过 Magisk 安装并完成**两次正常重启**。10/10 自适应框架能力已实际挂载，Zygisk Next 已登记并在 PowerKeeper 进程映射原生库；GMS 在 Millet/DeviceIdle 名单、Greeze 限制为 false，FCM 5228 连通且未新增崩溃。Magisk 若显示黄色“部分功能/适配中”，通常表示 PowerKeeper **方法级 Hook 与端到端消息到达尚无集成版独立证明**，不等于框架未加载成功。
 
-该版本为当前 **Latest 推荐下载**，但保留 alpha 标签；其他机型、真实推送到达率及长期续航 A/B 仍需进一步验证，不承诺所有 OEM 功能完全等效。详见 [PR #15 实机验收记录](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/15#issuecomment-6524287155) 与 [安装说明](powerkeeper-runtime/docs/integrated-magisk-candidate-v040a7.md)。
+该版本为此前的 alpha.8 验证基线；当前推荐下载已更新至 alpha.9，仍保留 alpha 标签；其他机型、真实推送到达率及长期续航 A/B 仍需进一步验证，不承诺所有 OEM 功能完全等效。详见 [PR #15 实机验收记录](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/15#issuecomment-6524287155) 与 [安装说明](powerkeeper-runtime/docs/integrated-magisk-candidate-v040a7.md)。
 
 ## 2026-10-31 蜂窝 FCM 长时间断联修复
 
