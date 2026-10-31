@@ -31,6 +31,8 @@ printf '%s\n' 'I/gtalk_connection(123): [gms 0 UNKNOWN_HOST]'
 sleep 6
 MOCK
 chmod +x "$T/bin/logcat"
+# runtime_workers.sh intentionally defines RUNDIR from this override.
+export FCM_UNIFIED_RUNTIME="$T/runtime"
 export FCM_TEST_EVENTS="$T/events.txt" FCM_TEST_LOGCAT_ARGS="$T/logcat_args.txt"
 PATH="$T/bin:$PATH" /bin/sh "$T/module/bin/unified_event_worker.sh" > "$T/worker.stdout" 2> "$T/worker.stderr" &
 worker=$!
