@@ -32,12 +32,17 @@ sleep 6
 MOCK
 chmod +x "$T/bin/logcat"
 export FCM_TEST_EVENTS="$T/events.txt" FCM_TEST_LOGCAT_ARGS="$T/logcat_args.txt"
-PATH="$T/bin:$PATH" /bin/sh "$T/module/bin/unified_event_worker.sh" >/dev/null 2>&1 &
+PATH="$T/bin:$PATH" /bin/sh "$T/module/bin/unified_event_worker.sh" > "$T/worker.stdout" 2> "$T/worker.stderr" &
 worker=$!
 sleep 2
 kill "$worker" 2>/dev/null || true
 wait "$worker" 2>/dev/null || true
-[ -s "$FCM_TEST_EVENTS" ] || { echo 'FAIL: event did not invoke guard' >&2; exit 1; }
+[ -s "$FCM_TEST_EVENTS" ] || {
+  echo 'FAIL: event did not invoke guard' >&2
+  cat "$T/worker.stderr" "$T/worker.stdout" "$T/logcat_args.txt" 2>/dev/null || :
+  ls -la "$T" "$T/runtime" "$T/module/bin" >&2
+  exit 1
+}
 [ "$(wc -l < "$FCM_TEST_EVENTS")" -eq 1 ] || { echo 'FAIL: unexpectedly repeated guard calls' >&2; exit 1; }
 grep -qx 'alarm-event' "$FCM_TEST_EVENTS"
 grep -Fq -- '-b main -b events' "$FCM_TEST_LOGCAT_ARGS"
