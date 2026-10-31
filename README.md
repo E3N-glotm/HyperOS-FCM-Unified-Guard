@@ -2,11 +2,17 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.8（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
+单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.9（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.8/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.8/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.9/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.9/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
+
+## v0.4.0-alpha.9：恢复旧 Millet Guard + FCM Live 的 FCM 软恢复行为
+
+2026-10-31 在真实蜂窝待机期间出现约 48 分钟和约 93 分钟的 MCS 长时间断连。对照旧 Millet Guard 和 E3N FCM Live 源码后，确认之前的 alpha.8 对**原生软重连**错误增加了 DNS 成功的前置条件；旧组合仅在考虑重启 GMS 进程时才使用严格的 DNS/TCP 验证。现已恢复旧版区分：持续断连超过 10 分钟且 GMS 重连闹钟显示已安排但仍未恢复时，每 15 分钟最多触发一次原生 `GCM_RECONNECT`，即使 DNS 暂时不可用也不会先阻断该非侵入式广播。对 GMS 进程重启的严格检查不变。
+
+合并后的事件监听器现在还会在**已有单条 logcat 流**中识别 `gtalk_connection`，沿用原有 15 秒去抖及两分钟后备维护周期，利用已有 GMS 系统事件检查连接，不增加后台进程、唤醒锁、单独闹钟或清除微信 Token。两项修复已在手机上独立热部署，三条守护进程和当前 FCM TCP 连接正常；**长时间深度休眠和运营商断网的真实送达能力尚未完成新一轮夜间对照**。详见 [PR #19](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/pull/19) 和 [旧组合审计](docs/fcm-legacy-combination-night-audit-20261031.md)。
 
 ## v0.4.0-alpha.8：单一模块实机验收
 
@@ -38,7 +44,7 @@
 
 ## 安装与升级
 
-1. 下载 Latest Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
+1. 下载 Latest Release 中的 `HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip`，不要把 GitHub 自动生成的 Source code ZIP 当作安装包。
 2. 备份 `/data/adb/fcm_unified_guard/`；若从旧 Millet Guard 迁移，同时保留旧名单与所有权记录。升级保留已有 `packages.list` 和 `unified.conf`，仅在首次没有配置时导入旧名单。
 3. 在 Magisk 中安装 ZIP。关闭旧 Millet Guard 的重复守护；若此前启用了 FCM Live/LSPosed 桥接，关闭对应功能，避免与静态策略重复处理。
 4. 将需要管理的应用逐行写入 `/data/adb/fcm_unified_guard/packages.list`。首次安装后正常重启，等待“自动适配中”变为“待重启生效”，再正常重启一次；已有可用缓存时可能无需这一步等待。

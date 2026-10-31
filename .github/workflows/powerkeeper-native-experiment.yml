@@ -108,11 +108,12 @@ jobs:
             --static-zip "$base" --static-sha256 "$sha" \
             --native-so powerkeeper-runtime/build/production/libfcmu_pk.so \
             --dex powerkeeper-runtime/build/powerkeeper-runtime.dex \
-            --out dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip
+            --out dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip
           python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
-          p=Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip')
+          import hashlib
+          p=Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip')
           with ZipFile(p) as z:
               assert z.testzip() is None
               names=set(z.namelist())
@@ -121,16 +122,26 @@ jobs:
                            'powerkeeper-runtime.dex','backend/powerkeeper-packages.list'):
                   assert item in names, item
               assert b'id=fcm_unified_guard' in z.read('module.prop')
-              assert b'0.4.0-alpha.8' in z.read('module.prop')
+              assert b'0.4.0-alpha.9' in z.read('module.prop')
+              assert b'versionCode=40009' in z.read('module.prop')
+              # Validate the exact fixes tested on the device, not merely the version.
+              for rel in ('bin/fcm_guard.sh','bin/unified_event_worker.sh'):
+                  assert z.read(rel) == (Path('module') / rel).read_bytes().replace(b'\r\n',b'\n'), rel
+              guard=z.read('bin/fcm_guard.sh')
+              events=z.read('bin/unified_event_worker.sh')
+              assert b'scheduled-alarm-stalled-native-reconnect' in guard
+              assert b'gtalk_connection:I' in events
+              assert hashlib.sha256(guard).hexdigest() == 'b8481dc0d8eabc92d740c7b8705b5e3878653e10242b4f2d26357b76c6bf4d1c'
+              assert hashlib.sha256(events).hexdigest() == '2064b956fd0969d73f881dc09b045f2f7c03310e8a18c72ee0bbcc4ee2c201c3'
               assert not any(x.startswith('bridge/') or x.endswith('.apk') for x in names)
           print("ONE_MODULE_INSTALLABLE_CANDIDATE_AUDIT_OK")
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate-NOT-STABLE
+          name: HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate-NOT-STABLE
           path: |
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.8-integrated-candidate.zip.sha256
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip.sha256
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
