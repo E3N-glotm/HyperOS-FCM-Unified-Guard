@@ -13,8 +13,8 @@ import io
 from pathlib import Path, PurePosixPath
 import zipfile
 
-VERSION = "0.4.0-alpha.8"
-VERSION_CODE = "40008"
+VERSION = "0.4.0-alpha.9"
+VERSION_CODE = "40009"
 MOD_ID = "fcm_unified_guard"
 OUTPUT_NAME = f"HyperOS-FCM-Unified-Guard-v{VERSION}-integrated-candidate.zip"
 DEFAULT_PACKAGES = b"com.miui.powerkeeper\ncom.xiaomi.powerkeeper\n"
