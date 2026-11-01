@@ -4,15 +4,24 @@ RUNDIR=/data/adb/fcm_unified_guard
 WAKE_BIN=$MODDIR/bin/fcmu_alarm_wait
 WAKE_STATUS=$RUNDIR/alarm-wakeup.state
 WAKE_ERROR_LOGGED=0
+WAKELOCK_HELD=0
+WAKELOCK_TAG=fcmunified_alarm_check
 SLEEP_PID=
-trap '[ -z "$SLEEP_PID" ] || kill "$SLEEP_PID" 2>/dev/null; exit 0' HUP INT TERM
+release_scoped_wakelock() {
+  [ "$WAKELOCK_HELD" -eq 1 ] || return 0
+  printf '%s\n' "$WAKELOCK_TAG" > /sys/power/wake_unlock 2>/dev/null || true
+  WAKELOCK_HELD=0
+}
+trap 'release_scoped_wakelock; [ -z "$SLEEP_PID" ] || kill "$SLEEP_PID" 2>/dev/null; exit 0' HUP INT TERM
 uptime_seconds() {
   read -r uptime_value unused < /proc/uptime
   printf '%s\n' "${uptime_value%%.*}"
 }
 # Linux CLOCK_BOOTTIME_ALARM uses the kernel alarmtimer, capable of waking
 # a suspended CPU. A userspace sleep(120) is only a fallback, not a wakeup.
-# One alarm at a time; no CPU busy loop or held wakelock.
+# One alarm at a time. A narrowly scoped, automatically expiring 45-second
+# wakelock protects only the subsequent shell recovery check, not the wait.
+# It is explicitly released after checking and when the worker exits.
 wait_for_deadline() {
   delay=$1
   if [ -x "$WAKE_BIN" ]; then
@@ -22,7 +31,14 @@ wait_for_deadline() {
     rc=$?
     SLEEP_PID=
     if [ "$rc" -eq 0 ]; then
-      printf 'kernel-alarmtimer epoch=%s interval=%s\n' "$(date +%s)" "$delay" > "$WAKE_STATUS"
+      # A kernel alarm wakes the CPU but does not itself hold a user-space
+      # wakelock. Prevent immediate auto-suspend while fcm_guard runs. The
+      # kernel timeout is a fail-safe if the worker crashes before release.
+      if [ -w /sys/power/wake_lock ] \
+          && printf '%s %s\n' "$WAKELOCK_TAG" 45000000000 > /sys/power/wake_lock 2>/dev/null; then
+        WAKELOCK_HELD=1
+      fi
+      printf 'kernel-alarmtimer epoch=%s interval=%s scoped_wakelock=%s\n' "$(date +%s)" "$delay" "$WAKELOCK_HELD" > "$WAKE_STATUS"
       return 0
     fi
   else
@@ -66,5 +82,6 @@ while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
   [ "$next_policy" -ge "$deadline" ] || deadline=$next_policy
   delay=$((deadline-now))
   [ "$delay" -gt 0 ] || delay=1
+  release_scoped_wakelock
   wait_for_deadline "$delay"
 done
