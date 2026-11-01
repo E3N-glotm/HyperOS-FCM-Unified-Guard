@@ -21,7 +21,7 @@ mkfifo -m 600 "$FIFO" || exit 1
 last_alarm=0
 while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
   logcat -b main -b events -v brief -T 1 \
-    --regex='sourcePkg=com[.]google[.]android[.]gms([ ,}]|$)|stop [A-Za-z0-9._]+ due to SwipeUpClean|gtalk_connection' \
+    --regex='sourcePkg=com[.]google[.]android[.]gms|stop [A-Za-z0-9._]+ due to SwipeUpClean|gtalk_connection' \
     -s whetstone.activity:I am_kill:I gtalk_connection:I '*:S' > "$FIFO" 2>/dev/null &
   reader=$!
   # The parent owns this child and reaps it on restart/termination.
