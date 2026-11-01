@@ -231,39 +231,30 @@ gcm_reconnect_scheduler_state() {
 soft_reconnect_if_stalled() {
   soft_now=$1
   soft_outage=$2
-  [ "$soft_outage" -ge 120 ] 2>/dev/null || return 1
+  # The soft native GMS reconnect is safe well before any process restart.
+  [ "$soft_outage" -ge 90 ] 2>/dev/null || return 1
 
   scheduler_state=$(gcm_reconnect_scheduler_state)
-  soft_gap=300
+  soft_gap=180
   case "$scheduler_state" in
     overdue) soft_reason=overdue-scheduler ;;
     scheduled)
-      # Incident 2026-10-31: the native reconnect alarm kept being deferred
-      # during cellular idle and the device remained disconnected for 47m.
-      # The former guard refused to send a SOFT reconnect unless raw TCP
-      # 5228:5230 was already reachable, even though GMS itself also falls
-      # back to HTTPS/443. This made a harmless recovery broadcast depend
-      # on the much stricter prerequisite intended for GMS process restarts.
-      # Restore old Millet Guard v2.1.x's safety distinction: an OEM-native
-      # GCM_RECONNECT broadcast is NOT a Google Play services process restart.
-      # GMS must be allowed to rebuild its own retry/backoff state even if its
-      # Android DNS resolver reports UNKNOWN_HOST. Last night's 93m outage had
-      # failures in both primary and alternative network paths, and the
-      # alpha.8 DNS gate could suppress a harmless soft recovery unnecessarily.
-      # Strict Android DNS + TCP 5228:5230 readiness is still mandatory for
-      # the separate last-resort SIGTERM path. Do not modify the global DNS,
-      # routing, firewall or Google Play services state here.
-      [ "$soft_outage" -ge 600 ] 2>/dev/null || return 1
+      # During mobile idle, an apparently scheduled GMS reconnect alarm may
+      # remain deferred for tens of minutes. Do not equate scheduled with
+      # making progress: after 120 seconds of observed disconnection, send
+      # Google's own soft GCM_RECONNECT (NOT a GMS process restart).
+      # Leave strict DNS/TCP checks for the independent SIGTERM fallback.
+      [ "$soft_outage" -ge 120 ] 2>/dev/null || return 1
       soft_reason=scheduled-alarm-stalled-native-reconnect
-      # Keep a 15-minute retry gap and reuse only existing event/poll wakes:
-      # no new wake alarm, polling thread, wakelock, token reset, or GMS kill.
-      soft_gap=900
+      # Use existing event/poll wakes. Avoid alarms, wakelocks or busy loops.
+      # Throttle repeated soft requests to one per five minutes.
+      soft_gap=300
       ;;
     missing)
       # Avoid racing the short window between one reconnect attempt and GMS
-      # registering its next alarm. A completely missing scheduler is only
-      # considered stuck after five minutes of continuous disconnection.
-      [ "$soft_outage" -ge 300 ] 2>/dev/null || return 1
+      # registering its next alarm. A missing scheduler after 90 seconds
+      # merits one low-impact soft reconnect attempt.
+      [ "$soft_outage" -ge 90 ] 2>/dev/null || return 1
       soft_reason=missing-alarm
       ;;
     *) return 1 ;;
@@ -287,15 +278,19 @@ soft_reconnect_if_stalled() {
   fi
   sleep 8
 
-  if [ "$(fcm_state)" = "connected" ]; then
-    endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
-      | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
-    log_msg "FCM guard: soft reconnect recovered ${endpoint:-endpoint-unavailable}"
+  # Do not mistake a transient GcmService connected=true for an established
+  # MCS socket. This was the 05:38:47 false-success of 2026-11-01.
+  soft_state=$(fcm_state)
+  endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
+    | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
+  if [ "$soft_state" = connected ] \
+      && printf '%s\n' "$endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
+    log_msg "FCM guard: soft reconnect verified ${endpoint}"
     rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
     return 0
   fi
 
-  log_msg "FCM guard: soft reconnect delivered but GcmService remains disconnected"
+  log_msg "FCM guard: soft reconnect unverified state=$soft_state ${endpoint:-endpoint-unavailable}; outage timer retained"
   return 1
 }
 
@@ -464,11 +459,25 @@ case "$state" in
     # change the state during this pass; keep its fresh read and recovery.
     [ "$KEEPALIVE_PROBED" = 0 ] || state=$(fcm_state)
     if [ "$state" = connected ]; then
-      rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
-      exit 0
+      # Preserve an earlier outage if the service reports connected but the
+      # actual endpoint is unavailable. Never reset the timer on that alone.
+      if [ -f "$DOWN_FILE" ]; then
+        current_endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
+          | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
+        if ! printf '%s\n' "$current_endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
+          # A prior confirmed outage still has no endpoint. Continue the
+          # recovery path instead of silently returning on connected=true.
+          state=disconnected
+        fi
+      fi
+      if [ "$state" = connected ]; then
+        rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
+        exit 0
+      fi
     fi
     [ "$state" = unknown ] && exit 0
-    log_msg "FCM guard: keepalive exposed disconnected MCS; entering recovery path"
+    # With a prior outage and a missing endpoint, proceed just as with a
+    # disconnected GcmService, subject to the existing DNS/TCP safeguards.
     ;;
   unknown)
     # Fail closed: diagnostics failure must never trigger process intervention.
@@ -580,12 +589,16 @@ sleep 20
 
 state2=$(fcm_state)
 if [ "$state2" = "connected" ]; then
-  rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
   newpid=$(pidof com.google.android.gms.persistent 2>/dev/null | awk '{print $1}')
   [ -n "$newpid" ] || newpid=$(pidof com.google.android.gms 2>/dev/null | awk '{print $1}')
   endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
     | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
-  log_msg "FCM guard: recovered newpid=${newpid:-unknown} ${endpoint:-endpoint-unavailable}"
+  if printf '%s\n' "$endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
+    rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
+    log_msg "FCM guard: recovered newpid=${newpid:-unknown} ${endpoint}"
+  else
+    log_msg "FCM guard: restart yielded connected=true but no MCS endpoint; retry schedule retained"
+  fi
 else
   log_msg "FCM guard: restart issued but GcmService state=$state2; retry schedule retained"
 fi
