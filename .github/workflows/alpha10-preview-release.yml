@@ -1,0 +1,108 @@
+name: Build and publish FCM Unified Guard alpha10 preview
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha10-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-alpha10:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile static ARM64 kernel-alarmtimer helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang --version
+          command -v ld.lld || sudo apt-get update && sudo apt-get install -y lld
+          clang --target=aarch64-linux-gnu -fuse-ld=lld -nostdlib -static \
+            -fno-stack-protector -fno-pie -no-pie \
+            -Wl,-e,_start -Wl,--gc-sections -Wl,--build-id=none \
+            -Wl,-z,max-page-size=4096 -Oz \
+            -o /tmp/fcmu_alarm_wait native/fcmu_alarm_wait.c
+          file /tmp/fcmu_alarm_wait
+          test "$(od -An -tu1 -j18 -N2 /tmp/fcmu_alarm_wait | tr -d ' ')" = '1830'
+      - name: Download verified alpha9 integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 4 \
+            https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.9/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip \
+            -o /tmp/alpha9.zip
+          unzip -t /tmp/alpha9.zip >/dev/null
+      - name: Build alpha10 Magisk ZIP from alpha9 + patched components
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/bin/{fcm_guard,maintenance_worker,unified_event_worker,health_status}.sh; do
+            sh -n "$f"
+          done
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib
+          import pathlib
+          import zipfile
+          base=pathlib.Path('/tmp/alpha9.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip')
+          modified={name: pathlib.Path('module/bin/'+name).read_bytes() for name in (
+              'fcm_guard.sh','maintenance_worker.sh','unified_event_worker.sh','health_status.sh')}
+          with zipfile.ZipFile(base) as inp, zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as dst:
+              for info in inp.infolist():
+                  if info.is_dir():
+                      continue
+                  name=info.filename
+                  payload=inp.read(name)
+                  if name.startswith('bin/') and name[4:] in modified:
+                      payload=modified[name[4:]]
+                  if name=='module.prop':
+                      payload=payload.replace(b'version=0.4.0-alpha.9', b'version=0.4.0-alpha.10').replace(
+                          b'versionCode=40009',b'versionCode=40010')
+                  if name=='customize.sh':
+                      payload+=b'\n# alpha10 native alarmtimer executable\nif [ -f "$MODPATH/bin/fcmu_alarm_wait" ]; then\n  set_perm "$MODPATH/bin/fcmu_alarm_wait" 0 0 0755\nfi\n'
+                  dst.writestr(info,payload)
+              obj=zipfile.ZipInfo('bin/fcmu_alarm_wait')
+              obj.create_system=3
+              obj.external_attr=(0o100755<<16)
+              obj.compress_type=zipfile.ZIP_DEFLATED
+              dst.writestr(obj,pathlib.Path('/tmp/fcmu_alarm_wait').read_bytes(),compress_type=zipfile.ZIP_DEFLATED)
+              note=zipfile.ZipInfo('ALPHA10_WAKEUP.txt')
+              note.create_system=3
+              note.external_attr=(0o100644<<16)
+              dst.writestr(note, 'alpha10: ARM64 CLOCK_BOOTTIME_ALARM wakeup, soft reconnect fixes, MCS endpoint validation. Nightly delivery/power tests pending.\n')
+          with zipfile.ZipFile(out) as z:
+              assert z.testzip() is None
+              assert b'version=0.4.0-alpha.10' in z.read('module.prop')
+              assert z.read('bin/fcmu_alarm_wait').startswith(b'\x7fELF')
+              assert len(z.namelist()) == len(set(z.namelist()))
+              print('PACKAGE',out,'FILES',len(z.namelist()),'SIZE',out.stat().st_size)
+          digest=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{digest}  {out.name}\n')
+          print('SHA256',digest)
+          PY
+      - name: Publish alpha10 as non-Latest prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.10
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; not overwriting it.'
+            exit 0
+          fi
+          cat > /tmp/alpha10-notes.txt <<'EOF'
+          alpha10 修复休眠时普通 sleep 不主动唤醒 CPU 的问题，新增 ARM64 kernel alarmtimer 恢复检查。
+          继承 alpha9 的 Zygisk、PowerKeeper、10/10 框架适配与安装迁移逻辑，并补入快速软重连及错误恢复判定修复。
+          设备不支持 CLOCK_BOOTTIME_ALARM 时自动回退到原有非唤醒 sleep 并报告降级。
+          已在 Xiaomi pudding / Android 17 验证内核计时器启动、间隔返回及 FCM 在线；尚未完成整夜真实推送与待机功耗 A/B 验证。
+          因此本次仅发布预览版，不自动更新 Latest。
+          EOF
+          gh release create "$TAG" \
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip \
+            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip.sha256 \
+            --target "$GITHUB_SHA" --title 'HyperOS FCM Unified Guard v0.4.0-alpha.10（预览版）' \
+            --notes-file /tmp/alpha10-notes.txt --prerelease --latest=false
