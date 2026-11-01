@@ -90,19 +90,27 @@ jobs:
         run: |
           set -euo pipefail
           TAG=v0.4.0-alpha.10
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo 'Release already exists; not overwriting it.'
-            exit 0
-          fi
           cat > /tmp/alpha10-notes.txt <<'EOF'
           alpha10 修复休眠时普通 sleep 不主动唤醒 CPU 的问题，新增 ARM64 kernel alarmtimer 恢复检查。
-          继承 alpha9 的 Zygisk、PowerKeeper、10/10 框架适配与安装迁移逻辑，并补入快速软重连及错误恢复判定修复。
+          继承 alpha9 的 Zygisk、PowerKeeper、10/10 框架适配与安装迁移逻辑，并补入快速软重连、错误恢复判定及短时自动过期的 scoped wakelock。
           设备不支持 CLOCK_BOOTTIME_ALARM 时自动回退到原有非唤醒 sleep 并报告降级。
           已在 Xiaomi pudding / Android 17 验证内核计时器启动、间隔返回及 FCM 在线；尚未完成整夜真实推送与待机功耗 A/B 验证。
           因此本次仅发布预览版，不自动更新 Latest。
           EOF
-          gh release create "$TAG" \
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip \
-            dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip.sha256 \
-            --target "$GITHUB_SHA" --title 'HyperOS FCM Unified Guard v0.4.0-alpha.10（预览版）' \
-            --notes-file /tmp/alpha10-notes.txt --prerelease --latest=false
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # The preview was just published. Replace the candidate assets
+            # after the final short-lived wakelock safety review, and keep
+            # the source tag aligned with the exact source used for the ZIP.
+            gh release upload "$TAG" \
+              dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip \
+              dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip.sha256 --clobber
+            gh release edit "$TAG" --notes-file /tmp/alpha10-notes.txt --prerelease --latest=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh release create "$TAG" \
+              dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip \
+              dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip.sha256 \
+              --target "$GITHUB_SHA" --title 'HyperOS FCM Unified Guard v0.4.0-alpha.10（预览版）' \
+              --notes-file /tmp/alpha10-notes.txt --prerelease --latest=false
+          fi
