@@ -21,7 +21,14 @@ while [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
     if grep -Fxq 'com.google.android.gms' "$RUNDIR/packages.list" 2>/dev/null; then
       /system/bin/sh "$MODDIR/bin/fcm_guard.sh" poll
     fi
-    next_fcm=$(( $(uptime_seconds)+120 ))
+    # Healthy state keeps the existing low-cost two-minute check. Once an
+    # outage has been observed, retry at 30-second intervals on existing
+    # process wakes. This does not request a new wakelock or wakeup alarm.
+    if [ -f "$RUNDIR/fcm_down_since.epoch" ]; then
+      next_fcm=$(( $(uptime_seconds)+30 ))
+    else
+      next_fcm=$(( $(uptime_seconds)+120 ))
+    fi
   fi
   now=$(uptime_seconds)
   deadline=$next_fcm
