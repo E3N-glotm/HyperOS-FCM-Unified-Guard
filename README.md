@@ -8,6 +8,12 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.10（预览版）：深度休眠主动唤醒
+
+2026-11-01 新增基于 ARM64 Linux `CLOCK_BOOTTIME_ALARM` 的内核唤醒计时器，以解决普通 shell `sleep` 无法主动唤醒深度休眠 CPU 的问题。健康状态新增 `WAKEUP`，可辨识真实内核唤醒和不支持时的退化模式；保留 alpha9 PowerKeeper/Zygisk 集成、静态 10/10 框架与配置迁移。断连后的软恢复门槛为已观察断连 90–120 秒，仍有软重连限频和 DNS/TCP 守护的进程重启兜底，不要求安装 LSPosed。
+
+**[alpha10 预览版下载](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.10)**。当前仍标记为 Pre-release，不替换 alpha9 Latest。内核定时器已在 Android 17 的 ARM64 实机试运行，尚未完成完整一夜的真实 FCM 投递与待机耗电 A/B 测试；周期性主动唤醒可能增加耗电，其他机型不支持时安全退化至普通轮询。详见 [唤醒机制与验证说明](docs/alpha10-suspend-wakeup.md)。
+
 ## v0.4.0-alpha.9：恢复旧 Millet Guard + FCM Live 的 FCM 软恢复行为
 
 2026-10-31 在真实蜂窝待机期间出现约 48 分钟和约 93 分钟的 MCS 长时间断连。对照旧 Millet Guard 和 E3N FCM Live 源码后，确认之前的 alpha.8 对**原生软重连**错误增加了 DNS 成功的前置条件；旧组合仅在考虑重启 GMS 进程时才使用严格的 DNS/TCP 验证。现已恢复旧版区分：持续断连超过 10 分钟且 GMS 重连闹钟显示已安排但仍未恢复时，每 15 分钟最多触发一次原生 `GCM_RECONNECT`，即使 DNS 暂时不可用也不会先阻断该非侵入式广播。对 GMS 进程重启的严格检查不变。
