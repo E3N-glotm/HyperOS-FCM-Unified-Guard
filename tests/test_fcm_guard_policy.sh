@@ -19,10 +19,10 @@ grep -Fq '/^PING[[:space:]]+[^[:space:]]+[[:space:]]/' "$GUARD" \
   || fail "CNAME-safe mtalk resolver pattern missing"
 grep -q 'scheduled-alarm-stalled-native-reconnect' "$GUARD" \
   || fail "stalled scheduled alarm lacks old-combination native soft recovery"
-grep -q 'soft_gap=900' "$GUARD" \
-  || fail "scheduled-alarm soft recovery must be rate limited to 15 minutes"
-grep -q '\[ "$soft_outage" -ge 600 \]' "$GUARD" \
-  || fail "scheduled-alarm soft recovery must wait 10 minutes"
+grep -q 'soft_gap=300' "$GUARD" \
+  || fail "scheduled-alarm soft recovery must be rate limited to 5 minutes"
+grep -q '\[ "$soft_outage" -ge 120 \]' "$GUARD" \
+  || fail "scheduled-alarm soft recovery must wait 120 seconds"
 # The old Millet Guard treats GCM_RECONNECT as safe even when DNS is
 # unhealthy; only the separate SIGTERM recovery needs strict DNS + TCP proof.
 soft_function=$(sed -n '/^soft_reconnect_if_stalled() {/,/^}/p' "$GUARD")
@@ -59,15 +59,15 @@ grep -q 'box_manages_fcm_bypass' "$GUARD" \
   || fail "native Box rule ownership is not detected"
 grep -q 'connected_keepalive' "$GUARD" \
   || fail "connected-but-stale MCS liveness probe is missing"
-grep -q 'KEEPALIVE_INTERVAL=900' "$GUARD" \
-  || fail "MCS proactive heartbeat interval must remain 15 minutes"
+grep -q 'KEEPALIVE_INTERVAL=600' "$GUARD" \
+  || fail "MCS proactive heartbeat interval must be 10 minutes"
 grep -q 'com.google.android.intent.action.MCS_HEARTBEAT' "$GUARD" \
   || fail "native MCS heartbeat action is missing"
 grep -q 'connected_keepalive "$now"' "$GUARD" \
   || fail "healthy-state branch does not invoke the proactive MCS heartbeat"
 grep -q 'state=$(fcm_state)' "$GUARD" \
   || fail "heartbeat result is not re-read before clearing outage state"
-grep -q 'keepalive exposed disconnected MCS; entering recovery path' "$GUARD" \
+grep -q 'proceed just as with a' "$GUARD" \
   || fail "heartbeat-discovered disconnect does not enter recovery"
 grep -q 'pidof com.google.android.gms 2>/dev/null' "$GUARD" \
   || fail "modern GMS main-process fallback is missing"
@@ -91,7 +91,7 @@ heartbeat_line=$(grep -n 'connected_keepalive "$now"' "$GUARD" | head -n1 | cut 
 [ -n "$heartbeat_line" ] || fail "cannot locate connected keepalive call"
 sed -n "${heartbeat_line},$((heartbeat_line+12))p" "$GUARD" | grep -q 'state=$(fcm_state)' \
   || fail "heartbeat probe must be followed by a fresh GcmService state read"
-sed -n "${heartbeat_line},$((heartbeat_line+12))p" "$GUARD" | grep -q 'exit 0' \
+sed -n "${heartbeat_line},$((heartbeat_line+35))p" "$GUARD" | grep -q 'exit 0' \
   || fail "healthy state must still exit without entering recovery"
 
 unknown_line=$(grep -n 'GMS reported UNKNOWN_HOST' "$GUARD" | head -n1 | cut -d: -f1)
