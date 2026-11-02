@@ -94,7 +94,7 @@ sed -n "${heartbeat_line},$((heartbeat_line+12))p" "$GUARD" | grep -q 'state=$(f
 sed -n "${heartbeat_line},$((heartbeat_line+35))p" "$GUARD" | grep -q 'exit 0' \
   || fail "healthy state must still exit without entering recovery"
 
-unknown_line=$(grep -n 'GMS reported UNKNOWN_HOST' "$GUARD" | head -n1 | cut -d: -f1)
+unknown_line=$(grep -n 'GMS UNKNOWN_HOST' "$GUARD" | head -n1 | cut -d: -f1)
 resolver_line=$(grep -n 'Android resolver cannot resolve mtalk.google.com' "$GUARD" | head -n1 | cut -d: -f1)
 restart_line=$(grep -n 'kill -TERM "$gpid"' "$GUARD" | head -n1 | cut -d: -f1)
 soft_line=$(grep -n 'soft_reconnect_if_stalled "$now" "$outage"' "$GUARD" | tail -n1 | cut -d: -f1)
