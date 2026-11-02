@@ -8,6 +8,7 @@ ATTEMPT_FILE=$RUNDIR/fcm_recover.attempts
 PATHLOG_FILE=$RUNDIR/fcm_path_fail_log.epoch
 DNSLOG_FILE=$RUNDIR/fcm_dns_fail_log.epoch
 DNSFAIL_FILE=$RUNDIR/fcm_dns_fail.epoch
+DNSOK_FILE=$RUNDIR/fcm_dns_recovered_since.epoch
 DNSFLUSH_FILE=$RUNDIR/fcm_dns_flush.epoch
 SOFT_RECONNECT_FILE=$RUNDIR/fcm_soft_reconnect.epoch
 BYPASS_UID_FILE=$RUNDIR/fcm_bypass.uid
@@ -286,7 +287,7 @@ soft_reconnect_if_stalled() {
   if [ "$soft_state" = connected ] \
       && printf '%s\n' "$endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
     log_msg "FCM guard: soft reconnect verified ${endpoint}"
-    rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
+    rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$DNSOK_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
     return 0
   fi
 
@@ -412,7 +413,7 @@ flush_android_dns() {
   if [ "$flushed" -gt 0 ] 2>/dev/null; then
     log_msg "FCM guard: flushed Android DNS cache networks=$flushed"
   else
-    log_msg "FCM guard: Android DNS cache flush unsupported/no active resolver netId; restart remains blocked while DNS is unhealthy"
+    log_msg "FCM guard: DNS cache flush command unavailable or resolver netId absent; no cache flush claimed"
   fi
 }
 
@@ -471,7 +472,7 @@ case "$state" in
         fi
       fi
       if [ "$state" = connected ]; then
-        rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
+        rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$DNSOK_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
         exit 0
       fi
     fi
@@ -502,37 +503,49 @@ down_since=$(cat "$DOWN_FILE" 2>/dev/null)
 case "$down_since" in ''|*[!0-9]*) down_since=$now;; esac
 outage=$((now-down_since))
 
-# DNS failures are actionable earlier than a process restart. A recent
-# UNKNOWN_HOST emitted by GMS itself is authoritative evidence that killing
-# gms.persistent is the wrong layer to repair. Refresh resolver caches at a
-# bounded rate, then leave Google's reconnect logic intact.
+# alpha11: UNKNOWN_HOST is evidence of a past lookup, not proof the
+# resolver is STILL broken. Verify the CURRENT Android libc resolver first.
+# The old early exit on every recent GMS event could indefinitely postpone
+# recovery while repeated failed attempts refreshed the 15-minute window.
 if [ "$outage" -ge 60 ] 2>/dev/null; then
   unknown_epoch=$(recent_gms_unknown_host_epoch 2>/dev/null || true)
-  if [ -n "$unknown_epoch" ]; then
-    unknown_age=$((now-unknown_epoch))
-    if [ "$unknown_age" -lt 600 ] 2>/dev/null; then
-      remember_dns_failure "$unknown_epoch"
-      flush_android_dns "$now"
-      rate_limited_dns_log "$now" "GMS reported UNKNOWN_HOST ${unknown_age}s ago; DNS remediation only, no GMS restart"
-      soft_reconnect_if_stalled "$now" "$outage" || true
-      exit 0
-    fi
-  fi
-
   android_ip=$(android_resolve_mtalk 2>/dev/null || true)
   if [ -z "$android_ip" ]; then
+    # Never restart GMS during a confirmed current resolver failure.
+    rm -f "$DNSOK_FILE" 2>/dev/null || true
     remember_dns_failure "$now"
     flush_android_dns "$now"
-    rate_limited_dns_log "$now" "Android resolver cannot resolve mtalk.google.com; DNS remediation only, no GMS restart"
+    if [ -n "$unknown_epoch" ]; then
+      unknown_age=$((now-unknown_epoch))
+      rate_limited_dns_log "$now" "GMS UNKNOWN_HOST ${unknown_age}s ago AND current Android DNS unresolved; no GMS restart"
+    else
+      rate_limited_dns_log "$now" "Android resolver cannot resolve mtalk.google.com; no GMS restart"
+    fi
     soft_reconnect_if_stalled "$now" "$outage" || true
     exit 0
   fi
 
-  last_dns_fail=$(cat "$DNSFAIL_FILE" 2>/dev/null)
-  case "$last_dns_fail" in ''|*[!0-9]*) last_dns_fail=0;; esac
-  if [ "$last_dns_fail" -gt 0 ] 2>/dev/null && [ $((now-last_dns_fail)) -lt 300 ] 2>/dev/null; then
-    rate_limited_dns_log "$now" "Android resolver recovered mtalk=$android_ip but is inside 300s stability grace; no GMS restart"
-    exit 0
+  # Require two observations at least 90 seconds apart before permitting the
+  # existing 5228-5230 path proof / rate-limited GMS fallback. Do not turn an
+  # old UNKNOWN_HOST into a perpetually renewed DNS failure timestamp.
+  if [ -f "$DNSFAIL_FILE" ]; then
+    dns_ok_since=$(cat "$DNSOK_FILE" 2>/dev/null)
+    case "$dns_ok_since" in ''|*[!0-9]*) dns_ok_since=0;; esac
+    if [ "$dns_ok_since" -eq 0 ] 2>/dev/null || [ "$dns_ok_since" -gt "$now" ] 2>/dev/null; then
+      dns_ok_since=$now
+      printf '%s\n' "$now" > "$DNSOK_FILE"
+      log_msg "FCM guard: alpha11 Android DNS recovered mtalk=$android_ip; stability confirmation started"
+    fi
+    if [ $((now-dns_ok_since)) -lt 90 ] 2>/dev/null; then
+      soft_reconnect_if_stalled "$now" "$outage" || true
+      exit 0
+    fi
+    rm -f "$DNSFAIL_FILE" "$DNSOK_FILE" 2>/dev/null || true
+    log_msg "FCM guard: alpha11 DNS recovery stable 90s; enabling normal MCS path checks"
+  fi
+  if [ -n "$unknown_epoch" ]; then
+    unknown_age=$((now-unknown_epoch))
+    rate_limited_dns_log "$now" "Recent GMS UNKNOWN_HOST ${unknown_age}s ago but current Android DNS resolves mtalk=$android_ip; allowing guarded recovery"
   fi
 fi
 
@@ -594,7 +607,7 @@ if [ "$state2" = "connected" ]; then
   endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
     | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
   if printf '%s\n' "$endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
-    rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
+    rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$DNSOK_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
     log_msg "FCM guard: recovered newpid=${newpid:-unknown} ${endpoint}"
   else
     log_msg "FCM guard: restart yielded connected=true but no MCS endpoint; retry schedule retained"
