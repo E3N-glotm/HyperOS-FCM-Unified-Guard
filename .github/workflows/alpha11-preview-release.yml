@@ -1,0 +1,107 @@
+name: Build and publish HyperOS FCM Unified Guard alpha11
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha11-preview-release.yml'
+      - 'module/bin/fcm_guard.sh'
+      - 'tests/test_fcm_dns_recovery_alpha11.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha11-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha11:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify alpha11 DNS fallback and existing core invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+      - name: Download and checksum-verify alpha10 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.10
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha11 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.10-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.10',b'version=0.4.0-alpha.11').replace(b'versionCode=40010',b'versionCode=40011')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA11_DNS_RECOVERY.txt')
+              note.create_system=3
+              note.external_attr=(0o100644<<16)
+              dst.writestr(note,'alpha11: verify current Android DNS before acting on historical GMS UNKNOWN_HOST; two successful checks >=90s apart before guarded GMS fallback; preserve alpha10 alarmtimer, PowerKeeper, Zygisk and user configurations. Deep idle delivery needs overnight validation.\n')
+          with zipfile.ZipFile(out) as z:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.11' in z.read('module.prop')
+              assert b'alpha11 DNS recovery stable 90s' in z.read('bin/fcm_guard.sh')
+              assert z.read('bin/fcmu_alarm_wait').startswith(b'\x7fELF')
+              for k in ('zygisk/arm64-v8a.so','powerkeeper-runtime.dex','bin/maintenance_worker.sh','bin/health_status.sh','customize.sh'):
+                  assert z.read(k)==zipfile.ZipFile(base).read(k), k
+              print('verified',len(z.namelist()),'files',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip.sha256
+      - name: Publish alpha11 prerelease (retain alpha10 Latest until overnight verification)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.11
+          cat > /tmp/alpha11_notes.md <<'EOF'
+          **alpha11 DNS/FCM 恢复修复（测试版）**
+          - 修复近期 GMS UNKNOWN_HOST 的历史事件反复刷新、使修复被无限阻断的误判：每轮检查当前 Android DNS，而非只根据历史事件退出。
+          - 断连期间当前 Android DNS 不通：禁止激进 GMS 进程重启，保留限频原生 GCM_RECONNECT。
+          - 当前 DNS 恢复：连续两次间隔至少 90 秒验证，随后在真实 MCS 端口可达、五分钟断连门槛、既有重启限频全部满足时才执行兜底。
+          - DNS 再次失败则重新开始稳定观察；不重复宣称 ROM 不支持的 DNS 缓存刷新已完成。
+          - 完整继承 alpha10 的内核休眠唤醒、短时 wakelock、原始 Zygisk/PowerKeeper、静态框架以及配置迁移；**不修改 Box4Magisk / AdGuard Home 设置**。
+          - 已进行实机正常连接、模拟历史 DNS 故障/恢复与构建回归；真实夜间锁屏和端到端微信推送验证仍待后续。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip.sha256 --clobber
+            gh release edit "$TAG" --notes-file /tmp/alpha11_notes.md --prerelease --latest=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.11（DNS 自愈预览版）" --notes-file /tmp/alpha11_notes.md --prerelease --latest=false
+          fi
