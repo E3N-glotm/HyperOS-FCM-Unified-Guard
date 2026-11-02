@@ -8,6 +8,12 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.11（预览版）：DNS 恢复后及时补救 FCM 断连
+
+2026-11-02 的锁屏实机记录显示，在 04:46 至 07:25 的断连中，统一守护有持续执行内核闹钟与软重连，但 GMS 多次产生 `UNKNOWN_HOST`。旧逻辑将最近的错误事件当成 DNS 持续故障，可能不检查当前 DNS 是否已恢复便直接退出。alpha11 改为每轮先检查当前 Android libc 解析；DNS 确认不通时不重启 GMS，恢复后使用至少相隔 90 秒的两次 DNS 成功观测，再满足 MCS TCP 可达与原有限频条件后才允许进程级兜底。保留非侵入式 GCM_RECONNECT，且不调整 Box4Magisk / AdGuard Home 的用户配置。
+
+**[下载 alpha11 预览版](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.11)**。这是完整继承 alpha10 内核唤醒、PowerKeeper/Zygisk、静态框架和之前热修复的安装包，GitHub Actions 回归验证通过。当前手机已热部署 alpha11 FCM 修复，但版本标识只有安装完整 ZIP 后才会变为 alpha11。**DNS 上游持续不可达时，任何软重连都不能保证立刻修复；真实夜间投递及旧双模块等效性仍待进一步实测。**
+
 ## v0.4.0-alpha.10（预览版）：深度休眠主动唤醒
 
 2026-11-01 新增基于 ARM64 Linux `CLOCK_BOOTTIME_ALARM` 的内核唤醒计时器，以解决普通 shell `sleep` 无法主动唤醒深度休眠 CPU 的问题。健康状态新增 `WAKEUP`，可辨识真实内核唤醒和不支持时的退化模式；保留 alpha9 PowerKeeper/Zygisk 集成、静态 10/10 框架与配置迁移。断连后的软恢复门槛为已观察断连 90–120 秒，仍有软重连限频和 DNS/TCP 守护的进程重启兜底，不要求安装 LSPosed。
