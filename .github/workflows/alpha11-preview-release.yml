@@ -5,6 +5,7 @@ on:
       - '.github/workflows/alpha11-preview-release.yml'
       - 'module/bin/fcm_guard.sh'
       - 'tests/test_fcm_dns_recovery_alpha11.sh'
+      - 'tests/test_fcm_guard_policy.sh'
   workflow_dispatch:
 
 permissions:
