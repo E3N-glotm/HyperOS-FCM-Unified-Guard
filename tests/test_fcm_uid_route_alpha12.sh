@@ -38,6 +38,7 @@ got=$(fcm_path_ready)
 [ "$got" = 'gms-uid 74.125.142.188 5228' ] || { echo "FAIL: UID network success misreported: $got"; exit 1; }
 previous=$(wc -l < "$T/uid-probes.log" | tr -d ' ')
 KEEPALIVE_FILE="$T/run/fcm_keepalive.epoch"
+printf '%s\n' 0 > "$KEEPALIVE_FILE"
 connected_keepalive 4000
 [ "$KEEPALIVE_PROBED" = 0 ] || { echo 'FAIL: passive check triggered extra GMS read'; exit 1; }
 [ "$(wc -l < "$T/uid-probes.log" | tr -d ' ')" -eq "$previous" ] || { echo 'FAIL: healthy state made an active network probe'; exit 1; }
