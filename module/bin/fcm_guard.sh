@@ -172,35 +172,23 @@ fcm_state() {
 }
 
 connected_keepalive() {
+  # alpha12: observe a healthy GMS connection without sending MCS_HEARTBEAT.
+  # In real 2026-11-02/03 logs nearly every ten-minute forced heartbeat
+  # changed the MCS endpoint. This is disruption, NOT evidence of stale MCS.
+  # Google Play services already schedules its own heartbeat (~25 min).
   KEEPALIVE_PROBED=0
   ka_now=$1
   ka_last=$(cat "$KEEPALIVE_FILE" 2>/dev/null)
   case "$ka_last" in ''|*[!0-9]*) ka_last=0;; esac
   [ $((ka_now-ka_last)) -ge "$KEEPALIVE_INTERVAL" ] 2>/dev/null || return 0
   printf '%s\n' "$ka_now" > "$KEEPALIVE_FILE"
-  KEEPALIVE_PROBED=1
 
-  # GcmService can report connected=true while the underlying MCS socket has
-  # already gone stale behind a mobile/NAT path. Sending Google's own native
-  # heartbeat is a low-impact liveness probe: a healthy socket just sends the
-  # heartbeat; a stale socket is closed and reconnected by GMS itself.
-  before_endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
+  # Passive check only. The ordinary 120-second guard observes disconnections
+  # and the bounded soft GCM_RECONNECT path handles actual outages.
+  healthy_endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
     | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
-  if ! "$BB" timeout 8 am broadcast --user 0 \
-      -a com.google.android.intent.action.MCS_HEARTBEAT \
-      -p com.google.android.gms >/dev/null 2>&1; then
-    log_msg "FCM guard: proactive MCS heartbeat broadcast failed"
-    return 1
-  fi
-  sleep 2
-
-  after_state=$(fcm_state)
-  after_endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
-    | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
-  if [ "$after_state" = connected ] && [ "$before_endpoint" != "$after_endpoint" ]; then
-    log_msg "FCM guard: proactive heartbeat exposed stale MCS; reconnected ${after_endpoint:-endpoint-unavailable}"
-  elif [ "$after_state" != connected ]; then
-    log_msg "FCM guard: proactive heartbeat left GcmService state=$after_state; normal recovery path will handle it"
+  if ! printf '%s\n' "$healthy_endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
+    log_msg "FCM guard: alpha12 passive MCS check has no endpoint; leaving native GMS heartbeat undisturbed"
   fi
   return 0
 }
@@ -295,15 +283,37 @@ soft_reconnect_if_stalled() {
   return 1
 }
 
+gms_uid_for_probe() {
+  # Root's TCP checks may pass through Box/TProxy even when GMS's UID-bound
+  # direct 5228 bypass cannot reach the same IP. Resolve the real package UID.
+  probe_uid=$(cat "$BYPASS_UID_FILE" 2>/dev/null)
+  case "$probe_uid" in ''|*[!0-9]*)
+    probe_uid=$(pm list packages -U com.google.android.gms 2>/dev/null \
+      | awk '$1 == "package:com.google.android.gms" { sub(/^uid:/, "", $2); print $2; exit }')
+    ;;
+  esac
+  case "$probe_uid" in ''|*[!0-9]*) return 1;; esac
+  printf '%s\n' "$probe_uid"
+}
+
+gms_uid_tcp_ready() {
+  probe_ip=$1
+  probe_port=$2
+  probe_uid=$(gms_uid_for_probe) || return 1
+  # MagiskSU switches the socket owner to the GMS UID, matching per-UID
+  # firewall / routing exemptions. If this cannot run, fail closed instead
+  # of trusting a root/proxy socket and killing a healthy Google service.
+  command -v su >/dev/null 2>&1 || return 1
+  "$BB" timeout 7 su -s /system/bin/sh "$probe_uid" -c \
+    "/system/bin/toybox nc -z -w 4 $probe_ip $probe_port >/dev/null 2>&1"
+}
+
 fcm_path_ready() {
-  # Use the same Android resolver path as GMS. A direct nslookup from the
-  # module shell is not an independent probe on TProxy systems because Box may
-  # hijack it back through the same sing-box DNS policy.
   ip=$(android_resolve_mtalk 2>/dev/null || true)
   [ -n "$ip" ] || return 1
   for port in 5228 5229 5230; do
-    if "$BB" timeout 6 "$BB" nc -z -w 4 "$ip" "$port" >/dev/null 2>&1; then
-      printf '%s %s %s\n' android "$ip" "$port"
+    if gms_uid_tcp_ready "$ip" "$port"; then
+      printf '%s %s %s\n' gms-uid "$ip" "$port"
       return 0
     fi
   done
@@ -311,14 +321,14 @@ fcm_path_ready() {
 }
 
 android_resolve_mtalk() {
-  # Deliberately use Android's libc/netd resolver path instead of direct
-  # nslookup. The latter can succeed against a configured upstream while GMS
-  # itself is still receiving UNKNOWN_HOST through Android's resolver chain.
-  out=$(run_timeout /system/bin/ping -c 1 -W 1 mtalk.google.com 2>&1 || true)
+  # Resolve with the same application UID as GMS. This exercises Android
+  # libc/netd resolution and per-UID network policy rather than root's path.
+  uid=$(gms_uid_for_probe 2>/dev/null || true)
+  case "$uid" in ''|*[!0-9]*) return 1;; esac
+  command -v su >/dev/null 2>&1 || return 1
+  out=$(run_timeout su -s /system/bin/sh "$uid" -c \
+    "/system/bin/ping -c 1 -W 1 mtalk.google.com" 2>&1 || true)
   ip=$(printf '%s\n' "$out" | awk '
-    # libc ping may print the DNS canonical name rather than the query
-    # alias: PING mobile-gtalk.l.google.com (74.125.x.y). Match its IP,
-    # never depend on the first token preserving mtalk.google.com.
     /^PING[[:space:]]+[^[:space:]]+[[:space:]]/ {
       if (match($0, /\([0-9][0-9.]*\)/)) {
         value=substr($0, RSTART+1, RLENGTH-2)
@@ -578,13 +588,14 @@ case "$last" in ''|*[!0-9]*) last=0;; esac
 # Fast early recovery, progressively reducing churn. Persistent failures are
 # capped at one intervention per hour instead of either hammering GMS or
 # waiting two hours between attempts.
+# alpha12: ten hard restarts overnight never established MCS; avoid storms.
+# LAST_FILE is deliberately retained across successful reconnects to enforce
+# the global one-hour floor even if a new outage starts soon afterward.
 case "$attempts" in
-  0) min_gap=0 ;;
-  1) min_gap=300 ;;
-  2) min_gap=600 ;;
-  3) min_gap=1200 ;;
-  4|5) min_gap=1800 ;;
-  *) min_gap=3600 ;;
+  0|1) min_gap=3600 ;;
+  2) min_gap=10800 ;;
+  3) min_gap=21600 ;;
+  *) min_gap=43200 ;;
 esac
 [ $((now-last)) -ge "$min_gap" ] 2>/dev/null || exit 0
 
