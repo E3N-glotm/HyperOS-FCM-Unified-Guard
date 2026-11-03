@@ -65,7 +65,7 @@ jobs:
                   if entry.filename=='bin/fcm_guard.sh':
                       data=guard
                   elif entry.filename=='module.prop':
-                      data=data.replace(b'version=0.4.0-alpha.11',b'version=0.4.0-alpha.12').replace(b'versionCode=40010',b'versionCode=40011')
+                      data=data.replace(b'version=0.4.0-alpha.11',b'version=0.4.0-alpha.12').replace(b'versionCode=40011',b'versionCode=40012')
                   dst.writestr(entry,data)
               note=zipfile.ZipInfo('ALPHA12_MCS_STABILITY.txt')
               note.create_system=3
@@ -75,6 +75,7 @@ jobs:
               assert z.testzip() is None
               assert len(z.namelist())==len(set(z.namelist()))
               assert b'version=0.4.0-alpha.12' in z.read('module.prop')
+              assert b'versionCode=40012' in z.read('module.prop')
               assert b'gms_uid_tcp_ready' in z.read('bin/fcm_guard.sh')
               assert b' -a com.google.android.intent.action.MCS_HEARTBEAT' not in z.read('bin/fcm_guard.sh')
               assert b'min_gap=10800' in z.read('bin/fcm_guard.sh')
@@ -110,5 +111,5 @@ jobs:
             gh release edit "$TAG" --notes-file /tmp/alpha12_notes.md --prerelease --latest=false
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
           else
-            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.12（DNS 自愈预览版）" --notes-file /tmp/alpha12_notes.md --prerelease --latest=false
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.12（FCM夜间稳定性预览版）" --notes-file /tmp/alpha12_notes.md --prerelease --latest=false
           fi
