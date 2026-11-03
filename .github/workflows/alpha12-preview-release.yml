@@ -1,13 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha12
+# The alpha12 artifact is immutable after publishing. Future source changes
+# must create a separate release rather than silently overwriting this tag.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha12-preview-release.yml'
-      - 'module/bin/fcm_guard.sh'
-      - 'tests/test_fcm_uid_route_alpha12.sh'
-      - 'tests/test_fcm_guard_policy.sh'
-      - 'tests/test_fcm_runtime.sh'
-      - 'tests/test_fcm_dns_recovery_alpha11.sh'
   workflow_dispatch:
 
 permissions:
