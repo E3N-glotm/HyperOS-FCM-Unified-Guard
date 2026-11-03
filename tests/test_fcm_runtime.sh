@@ -1,5 +1,6 @@
 #!/bin/sh
-# Exercise real control flow with mocked OS endpoints, including stale-MCS.
+# Exercise actual health/recovery control flow with mocked OS endpoints.
+# alpha12 deliberately does not provoke a new MCS reconnect when healthy.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
@@ -18,26 +19,24 @@ fcm_state() {
   echo "$n" > "$TEST_TMP/reads"
   case "$TEST_CASE:$n" in
     unknown:*) echo unknown;;
-    stale:1|healthy:*) echo connected;;
-    *) echo disconnected;;
+    disconnected:*) echo disconnected;;
+    healthy:*) echo connected;;
+    *) echo unknown;;
   esac
 }
-connected_keepalive() {
-  KEEPALIVE_PROBED=0
-  [ "$TEST_CASE" != stale ] || KEEPALIVE_PROBED=1
-}
+connected_keepalive() { KEEPALIVE_PROBED=0; }
 pidof() { echo 12345; }
 MOCK
 awk 'f || /^# Polling and the event worker/ {f=1; print}' "$ROOT/module/bin/fcm_guard.sh" >> "$T/harness.sh"
 export TEST_TMP="$T"
-for TEST_CASE in healthy stale unknown; do
+for TEST_CASE in healthy disconnected unknown; do
   export TEST_CASE
   rm -f "$T/reads" "$T/run/fcm_down_since.epoch"
   sh "$T/harness.sh" poll
   case "$TEST_CASE" in
     healthy) [ "$(cat "$T/reads")" -eq 1 ]; [ ! -e "$T/run/fcm_down_since.epoch" ];;
-    stale) [ "$(cat "$T/reads")" -eq 2 ]; [ -s "$T/run/fcm_down_since.epoch" ];;
+    disconnected) [ "$(cat "$T/reads")" -eq 1 ]; [ -s "$T/run/fcm_down_since.epoch" ];;
     unknown) [ "$(cat "$T/reads")" -eq 1 ]; [ ! -e "$T/run/fcm_down_since.epoch" ];;
   esac
 done
-echo 'PASS: one healthy state read; heartbeat-discovered outage retained; unknown never intervenes'
+echo 'PASS: healthy FCM remains passive; direct disconnection starts outage; unknown never intervenes'
