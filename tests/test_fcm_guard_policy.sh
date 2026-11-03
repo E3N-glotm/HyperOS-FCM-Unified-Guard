@@ -58,17 +58,21 @@ grep -q 'installed missing Box FCM-only bypass' "$GUARD" \
 grep -q 'box_manages_fcm_bypass' "$GUARD" \
   || fail "native Box rule ownership is not detected"
 grep -q 'connected_keepalive' "$GUARD" \
-  || fail "connected-but-stale MCS liveness probe is missing"
+  || fail "passive FCM liveness observation is missing"
 grep -q 'KEEPALIVE_INTERVAL=600' "$GUARD" \
-  || fail "MCS proactive heartbeat interval must be 10 minutes"
-grep -q 'com.google.android.intent.action.MCS_HEARTBEAT' "$GUARD" \
-  || fail "native MCS heartbeat action is missing"
+  || fail "passive MCS sampling interval must be 10 minutes"
+passive_body=$(sed -n '/^connected_keepalive() {/,/^}/p' "$GUARD")
+if printf '%s\n' "$passive_body" | grep -Eq 'am broadcast| -a com.google.android.intent.action.MCS_HEARTBEAT'; then
+  fail "healthy GMS state must never inject a disruptive active heartbeat"
+fi
 grep -q 'connected_keepalive "$now"' "$GUARD" \
-  || fail "healthy-state branch does not invoke the proactive MCS heartbeat"
-grep -q 'state=$(fcm_state)' "$GUARD" \
-  || fail "heartbeat result is not re-read before clearing outage state"
-grep -q 'proceed just as with a' "$GUARD" \
-  || fail "heartbeat-discovered disconnect does not enter recovery"
+  || fail "healthy-state branch does not invoke passive observation"
+grep -q 'gms_uid_tcp_ready' "$GUARD" \
+  || fail "GMS UID-bound direct TCP route validation is missing"
+grep -q 'su -s /system/bin/sh "$probe_uid"' "$GUARD" \
+  || fail "GMS TCP probe must use per-UID path, not root/proxy path"
+grep -q 'min_gap=3600' "$GUARD" \
+  || fail "repeated GMS restart must respect 1h global cooldown"
 grep -q 'pidof com.google.android.gms 2>/dev/null' "$GUARD" \
   || fail "modern GMS main-process fallback is missing"
 grep -q 'soft_reconnect_if_stalled' "$GUARD" \
@@ -89,8 +93,8 @@ fi
 
 heartbeat_line=$(grep -n 'connected_keepalive "$now"' "$GUARD" | head -n1 | cut -d: -f1)
 [ -n "$heartbeat_line" ] || fail "cannot locate connected keepalive call"
-sed -n "${heartbeat_line},$((heartbeat_line+12))p" "$GUARD" | grep -q 'state=$(fcm_state)' \
-  || fail "heartbeat probe must be followed by a fresh GcmService state read"
+# The health observation itself is passive; do not demand an active
+# heartbeat-triggered GcmService re-read or force a reconnect.
 sed -n "${heartbeat_line},$((heartbeat_line+35))p" "$GUARD" | grep -q 'exit 0' \
   || fail "healthy state must still exit without entering recovery"
 
