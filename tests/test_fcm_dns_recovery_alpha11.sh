@@ -29,20 +29,28 @@ awk 'f || /^# Polling and the event worker/ {f=1;print}' "$GUARD" >> "$T/harness
 printf '%s\n' 1000 > "$T/run/fcm_down_since.epoch"
 run_case() { TEST_NOW=$1 TEST_DNS=$2 /bin/sh "$T/harness.sh" poll; }
 count_kills() { if [ -f "$T/kills.log" ]; then wc -l < "$T/kills.log" | tr -d ' '; else printf 0; fi; }
-run_case 1400 fail
+run_case 5400 fail
 [ -e "$T/run/fcm_dns_fail.epoch" ] || { echo 'FAIL: DNS failure not recorded'; exit 1; }
 [ "$(count_kills)" -eq 0 ] || { echo 'FAIL: restarted while DNS failed'; exit 1; }
-run_case 1500 ok
+run_case 5500 ok
 [ -s "$T/run/fcm_dns_recovered_since.epoch" ] || { echo 'FAIL: no DNS stability timer'; exit 1; }
 [ "$(count_kills)" -eq 0 ] || { echo 'FAIL: restart before stable DNS'; exit 1; }
-run_case 1550 ok
+run_case 5550 ok
 [ "$(count_kills)" -eq 0 ] || { echo 'FAIL: restart inside 90-second grace'; exit 1; }
-run_case 1591 ok
+run_case 5591 ok
 [ "$(count_kills)" -eq 1 ] || { echo 'FAIL: repeated historical UNKNOWN_HOST still blocks healthy 5228 path'; exit 1; }
 [ ! -e "$T/run/fcm_dns_fail.epoch" ] || { echo 'FAIL: stale failure not cleared'; exit 1; }
-run_case 1800 fail
+run_case 5800 fail
 [ "$(count_kills)" -eq 1 ] || { echo 'FAIL: restarted despite new DNS outage'; exit 1; }
 [ ! -e "$T/run/fcm_dns_recovered_since.epoch" ] || { echo 'FAIL: recovery timer not reset after DNS failed'; exit 1; }
-run_case 1900 ok
+run_case 5900 ok
 [ "$(count_kills)" -eq 1 ] || { echo 'FAIL: restarted after first recovered sample'; exit 1; }
-echo 'PASS alpha11: current DNS overrides stale UNKNOWN_HOST; 90s stability; DNS failure blocks GMS restart'
+run_case 6000 ok
+[ "$(count_kills)" -eq 1 ] || { echo 'FAIL: hard restart repeated within 1-hour cooldown'; exit 1; }
+run_case 9200 ok
+[ "$(count_kills)" -eq 2 ] || { echo 'FAIL: second hard restart should be allowed only after 1h'; exit 1; }
+run_case 12000 ok
+[ "$(count_kills)" -eq 2 ] || { echo 'FAIL: third hard restart bypassed 3-hour cooldown'; exit 1; }
+run_case 20001 ok
+[ "$(count_kills)" -eq 3 ] || { echo 'FAIL: third hard restart blocked beyond 3h despite healthy path'; exit 1; }
+echo 'PASS alpha12: current DNS overrides stale UNKNOWN_HOST; 90s stability; 1h/3h hard-restart cooldowns'
