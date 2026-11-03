@@ -8,6 +8,14 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.12 (preview): Overnight FCM stability fix
+
+The Nov 3 device logs revealed two prolonged MCS outages (02:51–05:14 and 06:09–07:14). With alpha11, the guard injected an `MCS_HEARTBEAT` every ten minutes even while connected, and each injection frequently coincided with an endpoint change. It also probed mtalk TCP reachability as root, which can use a different Box4Magisk/TProxy route from the actual Google Play services UID. On the test device, a root TCP probe succeeded for an IP while the same probe under GMS's UID failed. Repeated process restarts did not establish MCS.
+
+**alpha12** removes unsolicited heartbeats during healthy sessions, uses GMS-UID-bound Android DNS and TCP reachability checks before the process-level fallback, and applies increasing cooldowns after unsuccessful GMS restarts (global minimum 1 hour, then 3/6/12 hours). The previous soft `GCM_RECONNECT`, Android DNS recovery, kernel wake alarm, Zygisk/PowerKeeper and framework policies remain intact. It does not alter Box4Magisk or AdGuard Home user settings.
+
+[Download alpha12 preview](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.12). Verified with 8 regression tests, real-device UID network comparisons, and release ZIP integrity checks. Overnight delivery reliability and standby power have not yet been validated.
+
 ## v0.4.0-alpha.9: Restore the legacy native FCM soft recovery behavior
 
 Following real mobile-idle outages lasting approximately 48 and 93 minutes, source-level comparison with Millet Guard v2.1.x and E3N FCM Live revealed a behavioral regression: alpha.8 added Android DNS reachability as a prerequisite for the **non-disruptive native `GCM_RECONNECT` broadcast**. Alpha.9 restores the original distinction: after 10 minutes of sustained disconnection while the GMS reconnect alarm remains scheduled, one native soft attempt is permitted at most every 15 minutes, even when DNS is temporarily unavailable. Strict DNS/TCP validation remains mandatory for any last-resort GMS process restart.
