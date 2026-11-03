@@ -1,0 +1,114 @@
+name: Build and publish HyperOS FCM Unified Guard alpha12
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha12-preview-release.yml'
+      - 'module/bin/fcm_guard.sh'
+      - 'tests/test_fcm_uid_route_alpha12.sh'
+      - 'tests/test_fcm_guard_policy.sh'
+      - 'tests/test_fcm_runtime.sh'
+      - 'tests/test_fcm_dns_recovery_alpha11.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha12-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha12:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify alpha12 DNS fallback and existing core invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+      - name: Download and checksum-verify alpha11 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.11
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha12 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.11-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.11',b'version=0.4.0-alpha.12').replace(b'versionCode=40010',b'versionCode=40011')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA12_MCS_STABILITY.txt')
+              note.create_system=3
+              note.external_attr=(0o100644<<16)
+              dst.writestr(note,'alpha12: disable disruptive 10-minute MCS_HEARTBEAT injection, validate TCP path as GMS UID to avoid Box/TProxy root false positives, and back off repeated failed GMS restarts. Preserve full alpha11 integration and configurations. Nightly push delivery still requires validation.\\n')
+          with zipfile.ZipFile(out) as z:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.12' in z.read('module.prop')
+              assert b'gms_uid_tcp_ready' in z.read('bin/fcm_guard.sh')
+              assert b' -a com.google.android.intent.action.MCS_HEARTBEAT' not in z.read('bin/fcm_guard.sh')
+              assert b'min_gap=10800' in z.read('bin/fcm_guard.sh')
+              assert z.read('bin/fcmu_alarm_wait').startswith(b'\x7fELF')
+              for k in ('zygisk/arm64-v8a.so','powerkeeper-runtime.dex','bin/maintenance_worker.sh','bin/health_status.sh','customize.sh'):
+                  assert z.read(k)==zipfile.ZipFile(base).read(k), k
+              print('verified',len(z.namelist()),'files',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip.sha256
+      - name: Publish alpha12 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.12
+          cat > /tmp/alpha12_notes.md <<'EOF'
+          **alpha12：FCM 真实夜间断连专项修复（预览版）**
+          2026-11-03 实机夜间日志：02:51-05:14 与 06:09-07:14 出现长时间断连；alpha11 在期间进行了十余次进程级重启但未建立 MCS 端点，且健康态每 10 分钟主动广播 MCS_HEARTBEAT 后几乎总是发生连接端点轮换。
+          - 健康态完全取消人工 MCS_HEARTBEAT 广播，仅被动读取状态；尊重 GMS 原生约 25 分钟心跳，不增加新的高频定时器。
+          - 5228–5230 可达性改为以 Play Services 的真实 UID 而不是 root/TProxy 路由检查；根用户能通过代理并不代表 GMS 的直连例外可用。
+          - 连续失败的 GMS SIGTERM 加入跨断连全局一小时下限，二次失败后 3 小时、三次后 6 小时等渐进冷却；避免夜间反复破坏会话与增加耗电。
+          - 继续沿用 alpha11 的当前 DNS 判定、90 秒稳定恢复、GCM_RECONNECT、内核 alarmtimer、scoped wakelock、Zygisk PowerKeeper、静态框架、微信恢复与安装迁移。
+          - 不更改 Box4Magisk/AdGuard Home 配置，不改变 GMS/微信数据，不静默重启代理。
+          - 已通过 8 组独立回归及 Android 17 真机 UID 网络探测；完整夜间 FCM 实际投递与待机续航 A/B 尚待验证。仅为 prerelease，不设为 Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip.sha256 --clobber
+            gh release edit "$TAG" --notes-file /tmp/alpha12_notes.md --prerelease --latest=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.12（DNS 自愈预览版）" --notes-file /tmp/alpha12_notes.md --prerelease --latest=false
+          fi
