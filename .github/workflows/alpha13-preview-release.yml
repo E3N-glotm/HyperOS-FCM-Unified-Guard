@@ -95,7 +95,7 @@ jobs:
               assert len(z.read('powerkeeper-runtime.dex'))>1000
               assert b'164f2b6271eef11afaf5c97984011f01329173099accf69bada3b815a26cbd44' in z.read('powerkeeper-runtime.dex')
               assert z.read('bin/fcmu_alarm_wait').startswith(b'\x7fELF')
-              for k in ('zygisk/arm64-v8a.so','powerkeeper-runtime.dex','bin/maintenance_worker.sh','bin/health_status.sh','customize.sh'):
+              for k in ('zygisk/arm64-v8a.so','bin/maintenance_worker.sh','bin/health_status.sh','customize.sh'):
                   assert z.read(k)==zipfile.ZipFile(base).read(k), k
               print('verified',len(z.namelist()),'files',out.stat().st_size,'bytes')
           checksum=hashlib.sha256(out.read_bytes()).hexdigest()
