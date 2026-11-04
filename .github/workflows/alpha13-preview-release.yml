@@ -1,0 +1,132 @@
+name: Build and publish HyperOS FCM Unified Guard alpha13
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha13-preview-release.yml'
+      - 'powerkeeper-runtime/**'
+      - 'tests/test_powerkeeper_dns_attestation_alpha13.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha13-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha13:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha13 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha13
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha12 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.12
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha13 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.12-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.13-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='powerkeeper-runtime.dex':
+                      data=pathlib.Path('powerkeeper-runtime/build/powerkeeper-runtime.dex').read_bytes()
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.12',b'version=0.4.0-alpha.13').replace(b'versionCode=40012',b'versionCode=40013')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA13_PK_DNS_PARITY.txt')
+              note.create_system=3
+              note.external_attr=(0o100644<<16)
+              dst.writestr(note,'alpha13: disable disruptive 10-minute MCS_HEARTBEAT injection, validate TCP path as GMS UID to avoid Box/TProxy root false positives, and back off repeated failed GMS restarts. Preserve full alpha12 integration and configurations. Nightly push delivery still requires validation.\\n')
+          with zipfile.ZipFile(out) as z:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.13' in z.read('module.prop')
+              assert b'versionCode=40013' in z.read('module.prop')
+              assert b'gms_uid_tcp_ready' in z.read('bin/fcm_guard.sh')
+              assert b' -a com.google.android.intent.action.MCS_HEARTBEAT' not in z.read('bin/fcm_guard.sh')
+              assert b'min_gap=10800' in z.read('bin/fcm_guard.sh')
+              assert z.read('powerkeeper-runtime.dex')!=zipfile.ZipFile(base).read('powerkeeper-runtime.dex')
+              assert len(z.read('powerkeeper-runtime.dex'))>1000
+              assert b'164f2b6271eef11afaf5c97984011f01329173099accf69bada3b815a26cbd44' in z.read('powerkeeper-runtime.dex')
+              assert z.read('bin/fcmu_alarm_wait').startswith(b'\x7fELF')
+              for k in ('zygisk/arm64-v8a.so','powerkeeper-runtime.dex','bin/maintenance_worker.sh','bin/health_status.sh','customize.sh'):
+                  assert z.read(k)==zipfile.ZipFile(base).read(k), k
+              print('verified',len(z.namelist()),'files',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.13-integrated.zip.sha256
+      - name: Publish alpha13 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.13
+          cat > /tmp/alpha13_notes.md <<'EOF'
+          **alpha13 · 旧双模块 PowerKeeper/GMS DNS 限制保护移植（预览版）**
+
+          11 月 4 日约 04:44–07:12，alpha12 在深度休眠下持续出现 GMS UNKNOWN_HOST，并且 Android DNS 缓存刷新接口在当前 ROM 上不可用。旧 E3N FCM Live 通过动态拦截 PowerKeeper GmsObserver.updateFrameworkGmsNetStatus 来防止 GMS 被错误网络限制；单靠白名单、5230端口放行和重连脚本不能等效替代。
+
+          alpha13 在原 Magisk 单模块内增加经真机已安装 PowerKeeper APK 字节指纹和 DEX 语义验证的 GMS UID 专属 DNS 防护：对 NetdExecutor.setGmsDnsBlockerState(int uid, boolean deny) 只在 uid 为动态查询的 Google Play 服务实际 UID 且请求 deny 时，将其改为 allow，然后调用原 OEM 实现。其他 UID、其他方法、其他 APK 指纹均不改变。动态旧版 GmsObserver/Doze Hook 继续沿用原策略。
+          - 无须 LSPosed，不改 OEM APK、不改 Box4Magisk/AdGuardHome DNS，未加入额外周期唤醒或强制 GMS 重启。
+          - 继承 alpha12 的 GMS UID 实际网络探测、低扰动被动心跳、限频软重连、内核 alarmtimer、PowerKeeper Zygisk 与安装迁移。
+          - 原机 PowerKeeper 4.2.00 的 APK SHA-256 为 164f2b6271eef11afaf5c97984011f01329173099accf69bada3b815a26cbd44。任何更新或不匹配的 OEM APK 都安全降级，不是按机型名限制。
+          - 经主机 Java 单元测试、APK 指纹与动态 UID 规则静态验证、完整 ZIP 校验。**此次发布后尚未完成目标机重启的运行时 Hook 命中验证，也未通过下一晚实际推送/续航 A/B，不能声称完全等效旧双模块。**
+          仅为 prerelease，不更新 Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.13-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.13-integrated.zip.sha256 --clobber
+            gh release edit "$TAG" --notes-file /tmp/alpha13_notes.md --prerelease --latest=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.13-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.13-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.13（PowerKeeper GMS DNS保护预览版）" --notes-file /tmp/alpha13_notes.md --prerelease --latest=false
+          fi
