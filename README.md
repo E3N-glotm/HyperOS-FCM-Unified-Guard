@@ -8,6 +8,16 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.13（预览版）：旧 FCM Live 的 PowerKeeper GMS DNS 保护
+
+**[下载 alpha13 预览版](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.13)**。
+
+11 月 4 日凌晨 04:43:58–07:12:39，alpha12 在锁屏状态下发生约 2 小时 29 分钟 MCS 断连。多次原生软重连均因 Google Play 服务的 Android DNS `UNKNOWN_HOST` 失败；DNS 恢复后经 90 秒稳定观察与一次 GMS 兜底重连成功。本次对照旧 **Millet Guard + E3N FCM Live** 发现，原 LSPosed 版除了广播延迟和白名单保护，还拦截 PowerKeeper 的 `GmsObserver.updateFrameworkGmsNetStatus(boolean)` 以及 GMS 网络限制逻辑，单靠重连和 `5228–5230` 直连规则不能证明行为等效。
+
+alpha13 复用已有的 Zygisk + ART / Java 桥接，以 Android 17 上安装的 PowerKeeper 4.2.00 **实际 APK SHA-256** 为语义验证门槛，动态通过 PackageManager 取得 GMS UID。仅在 `NetdExecutor.setGmsDnsBlockerState(uid, deny)` 目标 UID 符合当前 GMS、且 OEM 请求禁止 DNS 时将 `deny=true` 改为 `false`，然后调用原方法；非 GMS UID、已允许动作与其他 OEM 接口保持原样。指纹不匹配、GMS UID 获取失败或者 Zygisk Hook 不可用时，不启用此 DNS 专项修复，基础守护保持可用。这是**已验证 APK 内容的保守兼容门控**，不是简单限定机型名称。
+
+新 DEX 重新编译并通过 Java 策略单元测试、精准 UID 与指纹门控回归，发布包经 GitHub Actions 与手机端完整性校验。**Zygisk 原生库、内核 alarmtimer、既有 FCM 核心、设置维护、Box4Magisk/AdGuard Home 用户配置均保持不变**。当前手机已下载 alpha13，但仍运行 alpha12；安装并正常重启后才能核实动态 Hook 的实际安装与调用。真实锁屏消息投递、长时断连和功耗 A/B 仍待验证，因此暂不设为稳定 Latest。
+
 ## v0.4.0-alpha.12（预览版）：夜间 FCM 连接稳定性修复
 
 2026-11-03 实测记录显示，alpha11 仍在凌晨 **02:51–05:14** 和 **06:09–07:14** 出现两次长时间断连。进一步排查发现，守护脚本在健康状态下每 10 分钟主动发送 `MCS_HEARTBEAT`，日志几乎每次都伴随 MCS 端点改变；此外，脚本使用 root 身份检查 5228 端口，而 Box4Magisk 对 GMS UID 和 root 使用不同的路由策略，实机已复现「root 连接成功、GMS UID 连接失败」的情况。夜间多次 GMS 进程级重启也没有恢复实际的 MCS 端点。
