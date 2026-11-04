@@ -6,6 +6,9 @@ import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileInputStream;
+import java.security.MessageDigest;
+import android.content.pm.PackageManager;
 import java.nio.charset.StandardCharsets;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -28,6 +31,55 @@ public final class PowerKeeperRuntimeEntry {
     // Ordinary/production builds never enable application-private trace I/O.
     private static final String DIAGNOSTIC_MARKER = "__FCMU_PK_EXPERIMENT_DIAGNOSTICS_ONLY__";
     private static volatile boolean diagnosticAuditEnabled;
+    // Verified against the *installed* PowerKeeper 4.2.00 APK on 2026-11-04.
+    // Its NetdExecutor.setGmsDnsBlockerState(int,boolean) maps true to
+    // dnsproxyd "deny" and false to "allow". This is an APK content
+    // fingerprint (not a phone/model/OS allowlist): other APK bytes fail
+    // closed for the DNS-specific hook, preserving all other safe hooks.
+    private static final String[] VERIFIED_GMS_DNS_APK_SHA256 = {
+        "164f2b6271eef11afaf5c97984011f01329173099accf69bada3b815a26cbd44"
+    };
+
+    private static boolean verifiedGmsDnsSemantics(Context context) {
+        try {
+            if (context == null || !"com.miui.powerkeeper".equals(context.getPackageName()))
+                return false;
+            String path = context.getApplicationInfo().sourceDir;
+            if (path == null || !path.endsWith(".apk")) return false;
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = new byte[32768];
+            // One read at process initialization only; not a recurring poll.
+            try (FileInputStream input = new FileInputStream(path)) {
+                int size;
+                while ((size = input.read(bytes)) != -1)
+                    digest.update(bytes, 0, size);
+            }
+            byte[] sha = digest.digest();
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : sha) {
+                hex.append(Character.forDigit((b >>> 4) & 15, 16));
+                hex.append(Character.forDigit(b & 15, 16));
+            }
+            for (String known : VERIFIED_GMS_DNS_APK_SHA256) {
+                if (known.equals(hex.toString())) return true;
+            }
+        } catch (Throwable ignored) {
+            // An unreadable/updated APK is not evidence of matching semantics.
+        }
+        return false;
+    }
+
+    private static int verifiedGmsUid(Context context) {
+        try {
+            int uid = context.getPackageManager().getPackageUid(
+                    PowerKeeperRuntimePolicy.GMS, 0);
+            // Reject non-application, isolated and invalid identities.
+            return uid >= 10000 && uid < 99000 ? uid : -1;
+        } catch (Throwable unsupported) {
+            return -1;
+        }
+    }
+
     private PowerKeeperRuntimeEntry() {}
 
     // Experimental-only Java runtime audit. This entry class is not included
@@ -103,8 +155,17 @@ public final class PowerKeeperRuntimeEntry {
             try {
                 List<String> names = new ArrayList<String>(PowerKeeperRuntimePolicy.defaultCandidates());
                 for (String name : candidates) names.add(name);
+                // The original E3N FCM Live intercepts PowerKeeper's
+                // GmsObserver, but the OEM may also deny *GMS UID DNS* via
+                // NetdExecutor. Only the independently verified APK
+                // semantics + a freshly resolved GMS UID allow this narrow
+                // additional hook. Others receive the existing safe hooks.
+                boolean dnsVerified = verifiedGmsDnsSemantics(context);
+                int gmsUid = dnsVerified ? verifiedGmsUid(context) : -1;
                 PowerKeeperRuntimePolicy.Report report =
-                        PowerKeeperRuntimePolicy.install(context.getClassLoader(), names, new NativeInstaller());
+                        PowerKeeperRuntimePolicy.install(
+                                context.getClassLoader(), names, new NativeInstaller(),
+                                gmsUid, dnsVerified && gmsUid >= 10000);
                 experimentalAudit(context, "hooks_installed=" + report.installed() + "\n" + report.toTsv());
                 for (java.util.Map.Entry<String,String> value : report.results().entrySet()) {
                     Log.i(TAG, value.getKey() + "=" + value.getValue());
