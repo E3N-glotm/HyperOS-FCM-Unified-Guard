@@ -82,7 +82,7 @@ jobs:
               note=zipfile.ZipInfo('ALPHA13_PK_DNS_PARITY.txt')
               note.create_system=3
               note.external_attr=(0o100644<<16)
-              dst.writestr(note,'alpha13: disable disruptive 10-minute MCS_HEARTBEAT injection, validate TCP path as GMS UID to avoid Box/TProxy root false positives, and back off repeated failed GMS restarts. Preserve full alpha12 integration and configurations. Nightly push delivery still requires validation.\\n')
+              dst.writestr(note,'alpha13: PowerKeeper GMS-only UID DNS deny prevention, gated by the proven OEM APK SHA-256 and dynamic GMS UID. Other UID rules untouched. Inherits alpha12 guarded FCM recovery, alarmtimer, Zygisk and user configuration; real overnight delivery still needs validation.\\n')
           with zipfile.ZipFile(out) as z:
               assert z.testzip() is None
               assert len(z.namelist())==len(set(z.namelist()))
