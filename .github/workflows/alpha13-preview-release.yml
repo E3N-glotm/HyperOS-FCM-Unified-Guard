@@ -1,10 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha13
+# Alpha13 release assets are immutable after publishing. Later code changes
+# must use a new release tag, never automatically replace this preview.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha13-preview-release.yml'
-      - 'powerkeeper-runtime/**'
-      - 'tests/test_powerkeeper_dns_attestation_alpha13.py'
   workflow_dispatch:
 
 permissions:
