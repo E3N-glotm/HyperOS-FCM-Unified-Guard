@@ -8,6 +8,14 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.13 (preview): Restore E3N FCM Live GMS DNS protection
+
+[Download alpha13 prerelease](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.13). On Nov 4, alpha12 observed a ~2h29m MCS outage during screen-off idle. The GMS Android resolver reported UNKNOWN_HOST until 07:10, and recovery succeeded at 07:12. The legacy Millet Guard + E3N FCM Live combination also intercepted PowerKeeper's GmsObserver and OEM GMS network restrictions—functionality not equivalent to a simple keepalive, whitelist or TCP port bypass.
+
+Alpha13 adds a **GMS-UID-only DNS deny prevention hook** to the existing Magisk Zygisk/ART PowerKeeper bridge. It is enabled only when the actual PowerKeeper APK SHA-256 matches bytecode semantics independently verified on the test ROM, and the GMS UID can be obtained dynamically. For `NetdExecutor.setGmsDnsBlockerState(int uid, boolean deny)`, only a deny request for the real GMS UID is changed to allow before invoking the OEM method. All other UIDs and rules remain unchanged; unknown APKs fail closed, retaining the base module. This fingerprint is for APK semantics, not a handset model whitelist.
+
+The full ZIP was rebuilt and validated in CI and on-device. The original native library, alarmtimer, other policies, user Box4Magisk/AdGuard Home configurations and alpha12 FCM core are preserved. **The new hook still requires installation/reboot and runtime hit verification; no claim of completed overnight push or battery parity is made.** This release is not Latest.
+
 ## v0.4.0-alpha.12 (preview): Overnight FCM stability fix
 
 The Nov 3 device logs revealed two prolonged MCS outages (02:51–05:14 and 06:09–07:14). With alpha11, the guard injected an `MCS_HEARTBEAT` every ten minutes even while connected, and each injection frequently coincided with an endpoint change. It also probed mtalk TCP reachability as root, which can use a different Box4Magisk/TProxy route from the actual Google Play services UID. On the test device, a root TCP probe succeeded for an IP while the same probe under GMS's UID failed. Repeated process restarts did not establish MCS.
