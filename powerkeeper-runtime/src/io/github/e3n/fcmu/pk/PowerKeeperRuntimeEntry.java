@@ -27,6 +27,9 @@ public final class PowerKeeperRuntimeEntry {
     private static volatile boolean attached;
     private static String[] candidates = new String[0];
     private static volatile Context auditContext;
+    // Set only after the exact GMS DNS Hook successfully installs. Used to
+    // distinguish actual OEM deny attempts from our own initial allow call.
+    private static volatile int activeGmsDnsHookUid = -1;
     // The native Zygisk experiment build supplies this marker explicitly.
     // Ordinary/production builds never enable application-private trace I/O.
     private static final String DIAGNOSTIC_MARKER = "__FCMU_PK_EXPERIMENT_DIAGNOSTICS_ONLY__";
@@ -236,6 +239,12 @@ public final class PowerKeeperRuntimeEntry {
                     runtimeAudit(context, "hook " + value.getKey() + "=" + value.getValue(), true);
                     Log.i(TAG, value.getKey() + "=" + value.getValue());
                 }
+                // This identity is trusted only after a reported successful
+                // native hook. Merely matching OEM method signatures is not
+                // enough to treat future calls as intercepted.
+                activeGmsDnsHookUid = (dnsVerified && gmsUid >= 10000 &&
+                    "hook_installed".equals(report.results().get("pk.firewall.gmsDnsUidRule")))
+                        ? gmsUid : -1;
                 // A hook preventing future deny does not clear a restriction
                 // that was set during OEM initialization before attach.
                 restoreGmsDnsOnce(context, gmsUid, dnsVerified, report);
@@ -273,6 +282,7 @@ public final class PowerKeeperRuntimeEntry {
         private Method backup;
         private final String methodName;
         private final AtomicBoolean invokedOnce = new AtomicBoolean();
+        private final AtomicBoolean independentDnsDenyOnce = new AtomicBoolean();
         MethodInterceptor(PowerKeeperRuntimePolicy.Interceptor callback, Method target) {
             handler = callback;
             isStatic = java.lang.reflect.Modifier.isStatic(target.getModifiers());
@@ -284,12 +294,26 @@ public final class PowerKeeperRuntimeEntry {
             final Object receiver = isStatic ? null : frame[0];
             int offset = isStatic ? 0 : 1;
             Object[] params = java.util.Arrays.copyOfRange(frame, offset, frame.length);
+            // The bootstrap restore uses (uid, false), so it must NOT be
+            // counted as an independently prevented OEM DNS denial.
+            boolean oemDnsDenyRequest =
+                    methodName.endsWith(".NetdExecutor#setGmsDnsBlockerState") &&
+                    activeGmsDnsHookUid >= 10000 && params.length == 2 &&
+                    params[0] instanceof Integer &&
+                    ((Integer) params[0]).intValue() == activeGmsDnsHookUid &&
+                    Boolean.TRUE.equals(params[1]);
             Object value = handler.onInvoke(receiver, params, new PowerKeeperRuntimePolicy.Proceed() {
                 @Override public Object call(Object self, Object[] args) throws Throwable {
                     try { return backup.invoke(self, args); }
                     catch (InvocationTargetException wrapped) { throw wrapped.getCause(); }
                 }
             });
+            // Only report a denial actually redirected through the OEM
+            // callback successfully. This is the distinct, independent
+            // runtime evidence the alpha14 status could not supply.
+            if (oemDnsDenyRequest && independentDnsDenyOnce.compareAndSet(false, true))
+                runtimeAudit(auditContext,
+                        "first_oem_gms_dns_deny_redirected uid=" + activeGmsDnsHookUid, true);
             if (invokedOnce.compareAndSet(false, true)) {
                 experimentalAudit(auditContext, "method_invoked=" + methodName);
                 // Only the very first successful invocation per hooked
