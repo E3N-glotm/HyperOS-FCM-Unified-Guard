@@ -1,11 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha14
+# Alpha14 published artifact is immutable. Subsequent source changes must
+# be released under a new tag rather than overwrite this audited release.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha14-preview-release.yml'
-      - 'powerkeeper-runtime/**'
-      - 'module/bin/health_status.sh'
-      - 'tests/test_powerkeeper_runtime_alpha14.py'
   workflow_dispatch:
 
 permissions:
