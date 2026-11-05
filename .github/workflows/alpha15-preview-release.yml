@@ -1,0 +1,151 @@
+name: Build and publish HyperOS FCM Unified Guard alpha15
+# Alpha15 is automatically built once; after publication the workflow is
+# frozen to avoid rewriting the audited release assets.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha15-preview-release.yml'
+      - 'powerkeeper-runtime/**'
+      - 'module/bin/health_status.sh'
+      - 'tests/test_powerkeeper_namespace_alpha15.py'
+  workflow_dispatch:
+
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha15-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha15:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha15 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha15
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha14 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.14-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.14
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha15 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.14-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='bin/health_status.sh':
+                      data=pathlib.Path('module/bin/health_status.sh').read_bytes()
+                  elif entry.filename=='powerkeeper-runtime.dex':
+                      data=pathlib.Path('powerkeeper-runtime/build/powerkeeper-runtime.dex').read_bytes()
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.14',b'version=0.4.0-alpha.15').replace(b'versionCode=40014',b'versionCode=40015')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA15_PK_EVIDENCE_FIX.txt')
+              note.create_system=3
+              note.external_attr=(0o100644<<16)
+              dst.writestr(note,'alpha15: correct Android per-process mount-namespace access to PowerKeeper app-private hook audit; verify current-boot process PID and distinguish OEM GMS DNS deny attempts from own bootstrap allow. Preserve alpha14 Zygisk core and wakeups. No claim of overnight push parity.\\n')
+          with zipfile.ZipFile(out) as z:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.15' in z.read('module.prop')
+              assert b'versionCode=40015' in z.read('module.prop')
+              assert b'gms_uid_tcp_ready' in z.read('bin/fcm_guard.sh')
+              assert b' -a com.google.android.intent.action.MCS_HEARTBEAT' not in z.read('bin/fcm_guard.sh')
+              assert b'min_gap=10800' in z.read('bin/fcm_guard.sh')
+              assert z.read('powerkeeper-runtime.dex')!=zipfile.ZipFile(base).read('powerkeeper-runtime.dex')
+              assert len(z.read('powerkeeper-runtime.dex'))>1000
+              assert b'164f2b6271eef11afaf5c97984011f01329173099accf69bada3b815a26cbd44' in z.read('powerkeeper-runtime.dex')
+              assert b'fcmu_pk_runtime_alpha14.tsv' in z.read('powerkeeper-runtime.dex')
+              assert b'PK_DNS_HOOK' in z.read('bin/health_status.sh')
+              assert z.read('bin/health_status.sh') != zipfile.ZipFile(base).read('bin/health_status.sh')
+              assert z.read('bin/fcmu_alarm_wait').startswith(b'\x7fELF')
+              for k in ('zygisk/arm64-v8a.so','bin/maintenance_worker.sh','customize.sh'):
+                  assert z.read(k)==zipfile.ZipFile(base).read(k), k
+              assert b'/proc/$pk_pid/root/data/user_de/' in z.read('bin/health_status.sh')
+              assert b'PK_DNS_DENY' in z.read('bin/health_status.sh')
+              assert b'first_oem_gms_dns_deny_redirected uid=' in z.read('powerkeeper-runtime.dex')
+              with zipfile.ZipFile(base) as old:
+                  allow={'module.prop','powerkeeper-runtime.dex','bin/health_status.sh'}
+                  for path in old.namelist():
+                      if path not in allow:
+                          assert z.read(path)==old.read(path), 'unexpected component change: '+path
+              print('verified',len(z.namelist()),'files',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip.sha256
+      - name: Publish alpha15 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.15
+          cat > /tmp/alpha15_notes.md <<'EOF'
+          **alpha15 · PowerKeeper Hook 真正命中证据修复（预览版）**
+
+          复查发现 alpha14 的 11 月 5 日实际审计在 PowerKeeper 进程挂载命名空间中：
+          /proc/<PowerKeeper_PID>/root/data/user_de/0/com.miui.powerkeeper/files/fcmu_pk_runtime_alpha14.tsv。
+          主 Root 命名空间直接读 /data/user_de/0/com.miui.powerkeeper/files 时目录不可见，导致健康检查误报 Hook 未安装。实际记录中 GmsObserver、NetdExecutor GMS DNS、Doze 三项 ART Hook 均安装成功，动态识别 GMS UID=10139，12:04:50 已调用初始 DNS allow；12:05:03 才恢复解析，仅是时间关联，不能证明唯一因果。
+
+          alpha15 更正健康检查：通过当前 PowerKeeper PID 对应的 /proc/PID/root 读取独立应用数据，检查当前开机时间和真实 attach PID，避免旧进程文件误报。区分 PK_DNS_HOOK、PK_METHODS、PK_DNS_HIT 与新的 PK_DNS_DENY。首个由 PowerKeeper 独立发出的 GMS DNS deny 若真正被成功改写为 allow，才会写入 first_oem_gms_dns_deny_redirected。初始化 allow 本身不计为拦截过 deny。
+          其他 UID、未知 OEM APK 与未验证动态签名一律保持原有逻辑。没有增加常驻监测、唤醒和 GMS 重启。
+          完整继承 alpha14 的原生 Zygisk、内核 alarmtimer、FCM 事件/软重连与用户网络设置。所有 Java Host 测试、组件一致性校验与 ZIP SHA-256 验证均须通过。
+          **此版本修复的是已确认的状态误报与真实 Hook 观测缺口；夜间 FCM 持续可靠性、真实推送到达率和旧双模块全部拦截行为尚未验证，不标记稳定 Latest。**
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip.sha256 --clobber
+            gh release edit "$TAG" --notes-file /tmp/alpha15_notes.md --prerelease --latest=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.15（PowerKeeper Hook证据与DNS诊断修复预览版）" --notes-file /tmp/alpha15_notes.md --prerelease --latest=false
+          fi
