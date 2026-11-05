@@ -80,6 +80,65 @@ public final class PowerKeeperRuntimeEntry {
         }
     }
 
+
+    // alpha14: durable ONE-SHOT, process-private evidence. The phone's main
+    // logcat ring is only 64 KiB; boot-time hook evidence disappears quickly.
+    // No separate daemon, timer, polling, or write on every method call.
+    private static final String RUNTIME_AUDIT_NAME = "fcmu_pk_runtime_alpha14.tsv";
+    private static synchronized void runtimeAudit(Context context, String event, boolean append) {
+        if (context == null || event == null ||
+                !"com.miui.powerkeeper".equals(context.getPackageName())) return;
+        try {
+            Context de = context.createDeviceProtectedStorageContext();
+            File dir = de.getFilesDir();
+            if (dir == null) return;
+            File out = new File(dir, RUNTIME_AUDIT_NAME);
+            if (append && out.isFile() && out.length() > 8192) return;
+            try (FileOutputStream stream = new FileOutputStream(out, append)) {
+                String line = System.currentTimeMillis() + "\t" + event + "\n";
+                stream.write(line.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Throwable ignored) {
+            // Auditing is not allowed to prevent OEM application startup.
+        }
+    }
+
+    // alpha14: avoid trusting "hook installed" to retroactively undo a DNS
+    // deny written before Java Application.attach was intercepted. Only after
+    // exact APK semantic fingerprint + dynamic GMS UID + successful hook,
+    // send one idempotent GMS-only allow through the OEM method itself.
+    private static void restoreGmsDnsOnce(Context context, int uid,
+                                           boolean verified,
+                                           PowerKeeperRuntimePolicy.Report report) {
+        if (!verified || uid < 10000 ||
+                report == null ||
+                !"hook_installed".equals(
+                    report.results().get("pk.firewall.gmsDnsUidRule"))) {
+            runtimeAudit(context, "dns_initial_allow=skipped", true);
+            return;
+        }
+        try {
+            ClassLoader loader = context.getClassLoader();
+            Class<?> netd = Class.forName(
+                    "com.miui.powerkeeper.utils.NetdExecutor", false, loader);
+            Method method = netd.getDeclaredMethod(
+                    "setGmsDnsBlockerState", int.class, boolean.class);
+            if (!java.lang.reflect.Modifier.isStatic(method.getModifiers()) ||
+                    method.getReturnType() != void.class) {
+                runtimeAudit(context, "dns_initial_allow=invalid_signature", true);
+                return;
+            }
+            method.setAccessible(true);
+            // This calls the same OEM netd rule API used by PowerKeeper.
+            // The intercepted path transparently forwards uid,false.
+            method.invoke(null, Integer.valueOf(uid), Boolean.FALSE);
+            runtimeAudit(context, "dns_initial_allow=called uid=" + uid, true);
+        } catch (Throwable error) {
+            runtimeAudit(context, "dns_initial_allow=failed exception="
+                    + error.getClass().getSimpleName(), true);
+        }
+    }
+
     private PowerKeeperRuntimeEntry() {}
 
     // Experimental-only Java runtime audit. This entry class is not included
@@ -147,8 +206,12 @@ public final class PowerKeeperRuntimeEntry {
             catch (InvocationTargetException wrapped) { throw wrapped.getCause(); }
             experimentalAudit(context, "attach_backup_completed");
             auditContext = context;
-            if (!context.getPackageName().toLowerCase(java.util.Locale.ROOT).contains("powerkeeper"))
+            if (!"com.miui.powerkeeper".equals(context.getPackageName()))
                 return result;
+            // Reset on each PowerKeeper process attach: stale evidence from
+            // yesterday must never be accepted as current boot hook success.
+            runtimeAudit(context, "alpha14 attach_backup_completed pid="
+                    + android.os.Process.myPid(), false);
             // OEM ClassLoader/reflection may fail on an untested ROM. These
             // optional hooks must never crash PowerKeeper after its original
             // Application.attach completed. Fail open, retaining base guard.
@@ -167,13 +230,21 @@ public final class PowerKeeperRuntimeEntry {
                                 context.getClassLoader(), names, new NativeInstaller(),
                                 gmsUid, dnsVerified && gmsUid >= 10000);
                 experimentalAudit(context, "hooks_installed=" + report.installed() + "\n" + report.toTsv());
+                runtimeAudit(context, "apk_sha_verified=" + dnsVerified
+                        + " gms_uid=" + gmsUid, true);
                 for (java.util.Map.Entry<String,String> value : report.results().entrySet()) {
+                    runtimeAudit(context, "hook " + value.getKey() + "=" + value.getValue(), true);
                     Log.i(TAG, value.getKey() + "=" + value.getValue());
                 }
+                // A hook preventing future deny does not clear a restriction
+                // that was set during OEM initialization before attach.
+                restoreGmsDnsOnce(context, gmsUid, dnsVerified, report);
                 Log.i(TAG, "PowerKeeper hooks installed=" + report.installed()
                         + " (runtime behavior unverified)");
             } catch (Throwable unsupportedRom) {
                 experimentalAudit(context, "optional_hook_install_failed");
+                runtimeAudit(context, "install_failed exception="
+                        + unsupportedRom.getClass().getSimpleName(), true);
                 Log.w(TAG, "Optional PowerKeeper hooks unavailable; base FCM guard unaffected", unsupportedRom);
             }
             return result;
@@ -219,8 +290,12 @@ public final class PowerKeeperRuntimeEntry {
                     catch (InvocationTargetException wrapped) { throw wrapped.getCause(); }
                 }
             });
-            if (invokedOnce.compareAndSet(false, true))
+            if (invokedOnce.compareAndSet(false, true)) {
                 experimentalAudit(auditContext, "method_invoked=" + methodName);
+                // Only the very first successful invocation per hooked
+                // method is persisted; no periodic I/O or new wakeup.
+                runtimeAudit(auditContext, "first_hit=" + methodName, true);
+            }
             return value;
         }
     }
