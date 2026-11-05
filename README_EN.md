@@ -8,6 +8,16 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.15 (preview): Fix PowerKeeper runtime audit across Android mount namespaces
+
+[Alpha15 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.15). A real-device investigation on Nov 5 confirmed that the PowerKeeper app's Device-Encrypted private audit lives in its **own mount namespace**. The file exists under `/proc/<PowerKeeper_PID>/root/data/user_de/0/com.miui.powerkeeper/files/fcmu_pk_runtime_alpha14.tsv` although the Magisk shell's direct `/data/user_de/0/com.miui.powerkeeper/files/` path does not exist. Alpha14's apparent missing-hook report was therefore a **diagnostic false negative**.
+
+The recovered audit proves that the GmsObserver, GMS-UID DNS and Doze PowerKeeper ART hooks were actually installed and invoked. The bootstrap OEM allow was called for the actual GMS UID (10139) at **12:04:50**. The FCM monitor reported Android DNS recovery at **12:05:03**, 13 seconds later. This is temporal evidence, not proof of sole causation or successful end-to-end message delivery.
+
+Alpha15 fixes health reporting by using the current PowerKeeper PID's mount namespace, same-boot timestamp and exact attach PID; it also distinguishes the bootstrap allow from an **independent OEM GMS DNS deny request successfully redirected** by the hook. A new `PK_DNS_DENY` event is reported only for the latter. The native Zygisk library, kernel alarmtimer, core FCM recovery and existing user network settings remain unchanged.
+
+The alpha14 health script was also safely hot-fixed in place and validated on the running phone; alpha15 requires Magisk installation and a normal reboot for its new Java event evidence. Neither overnight delivery parity nor the full legacy LSPosed system_server hook equivalence has been established. SHA-256: `b4700f9ba77d2cf9f6600f51d06bf29e590c06c359216970eb207e2bde515e17`.
+
 ## v0.4.0-alpha.14 (preview): Restore pre-existing GMS DNS permissions and attest real PowerKeeper hooks
 
 [Download alpha14](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.14). The November 5 overnight session again reported roughly 2h36m of `UNKNOWN_HOST` / FCM disconnection. Although alpha13 included a Zygisk-based PowerKeeper hook, a mapped native library did not prove that any ART method was installed or called. A future-deny interceptor also cannot retroactively undo a GMS UID DNS deny set before the interceptor was installed.
