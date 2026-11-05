@@ -137,6 +137,42 @@ elif [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
 else
   emit GRAY POWERKEEPER "PowerKeeper runtime not included; optional interface discovery unavailable"
 fi
+# alpha14: native library mapping and DEX method discovery are not proof
+# that PowerKeeper OEM hooks actually attached. Read the one-shot, app-private
+# runtime attestation written by the PowerKeeper process itself. The file is
+# at most a few KiB; this read is part of the EXISTING 5-minute status poll.
+pk_runtime_audit=/data/user_de/0/com.miui.powerkeeper/files/fcmu_pk_runtime_alpha14.tsv
+pk_audit_fresh=0
+if [ -r "$pk_runtime_audit" ]; then
+  read -r boot_uptime unused < /proc/uptime
+  boot_uptime=${boot_uptime%%.*}
+  case "$boot_uptime" in ''|*[!0-9]*) boot_uptime=0;; esac
+  pk_boot_epoch=$((now-boot_uptime))
+  pk_audit_modified=$(stat -c %Y "$pk_runtime_audit" 2>/dev/null || echo 0)
+  case "$pk_audit_modified" in ''|*[!0-9]*) pk_audit_modified=0;; esac
+  if [ "$pk_audit_modified" -gt "$pk_boot_epoch" ] && [ "$pk_audit_modified" -le "$now" ]; then
+    pk_audit_fresh=1
+  fi
+fi
+if [ "$pk_audit_fresh" = 1 ]; then
+  if grep -Fq 'hook pk.firewall.gmsDnsUidRule=hook_installed' "$pk_runtime_audit" 2>/dev/null; then
+    pk_dns_result=$(grep -F 'dns_initial_allow=' "$pk_runtime_audit" 2>/dev/null | tail -n 1 | sed 's/.*dns_initial_allow=/dns_initial_allow=/')
+    case "$pk_dns_result" in
+      dns_initial_allow=called*) emit GREEN PK_DNS_HOOK "GMS-only DNS hook installed and initial OEM allow called; actual overnight efficacy unverified";;
+      *) emit YELLOW PK_DNS_HOOK "GMS-only DNS hook installed, initial allow not verified: ${pk_dns_result:-unknown}";;
+    esac
+    if grep -Fq 'first_hit=com.miui.powerkeeper.utils.NetdExecutor#setGmsDnsBlockerState' "$pk_runtime_audit" 2>/dev/null; then
+      emit GREEN PK_DNS_HIT "OEM GMS DNS method intercepted at least once (not proof of push delivery)"
+    else
+      emit YELLOW PK_DNS_HIT "DNS method install observed; no runtime method hit yet"
+    fi
+  else
+    emit YELLOW PK_DNS_HOOK "PowerKeeper process audit present, GMS DNS hook not confirmed installed; see private runtime audit"
+  fi
+else
+  emit YELLOW PK_DNS_HOOK "No current-boot PowerKeeper method-install evidence; library mapping alone is insufficient"
+fi
+
 idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
 if printf '%s\n' "$idle" | grep -Eq '^(system|user),com[.]google[.]android[.]gms,'; then
   emit GREEN DEVICEIDLE "native GMS exemption present"
