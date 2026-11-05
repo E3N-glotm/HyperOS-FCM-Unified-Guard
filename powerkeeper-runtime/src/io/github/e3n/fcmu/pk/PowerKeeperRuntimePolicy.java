@@ -77,11 +77,11 @@ public final class PowerKeeperRuntimePolicy {
         return install(loader, candidates, hooks, -1, false);
     }
 
-    /** Optional experimental DNS guard: callers must verify the current OEM
-     * method bytecode semantics AND resolve the installed GMS UID. Signature
-     * presence alone must never enable this policy; it is never used by the
-     * production bridge without explicit successful external verification.
-     * No ROM/device-version allowlist and no hard-coded GMS UID. */
+    /** Narrow PowerKeeper GMS DNS safeguard. The caller MUST verify the
+     * installed OEM APK content against previously audited method bytecode
+     * semantics AND dynamically resolve the current Google Play services UID.
+     * Mere method signature presence must NEVER enable this hook. Unknown
+     * ROM/APK binaries fail closed; no device-model or static GMS UID table. */
     public static Report install(ClassLoader loader, Iterable<String> candidates, Installer hooks,
                                  int verifiedGmsUid, boolean verifiedGmsDnsSemantics) {
         Report report = new Report();
