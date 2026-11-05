@@ -8,6 +8,16 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.14（预览版）：修复旧 DNS 禁用遗留状态，并提供 PowerKeeper Hook 真正命中的证据
+
+**[下载 alpha14 完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.14)**。手机 2026-11-05 凌晨 04:39:52–07:16:07 再次断连约 2 小时 36 分钟，GMS 不断报告 `UNKNOWN_HOST`。旧 E3N FCM Live 动态保护 GMS 网络相关 OEM 接口，而统一模块 alpha13 只具备 Zygisk 库加载证据，没有 ART Hook 安装与真实调用证明；并且即便 Hook 成功，也不能自动清除其安装**之前**写入的 GMS UID DNS `deny`。
+
+alpha14 在 PowerKeeper **实际 APK 字节哈希、已审计的 `NetdExecutor.setGmsDnsBlockerState(int,boolean)` 语义、动态获取的真实 GMS UID 和专项 Hook 实际 `hook_installed`** 全部通过的情况下，额外进行一次 OEM 原生 `setGmsDnsBlockerState(GMS_UID,false)`，尝试清除已有禁止规则。该行为不作用于其他应用 UID、不会修改全局 DNS / Box4Magisk / AdGuard Home；未知 APK、Hook 失败或 UID 不可验证时跳过此操作，基础 FCM 守护正常保留。
+
+PowerKeeper 自身首次启动时仅写一次少量私有 DE 文件 `/data/user_de/0/com.miui.powerkeeper/files/fcmu_pk_runtime_alpha14.tsv`，记录 `Application.attach`、每项 Hook 是否真实安装、GMS UID 初始 DNS 允许是否调用及相关方法首次命中。健康状态新增 `PK_DNS_HOOK` 和 `PK_DNS_HIT`，使用**本次开机**时间窗判定，避免把旧日志当成本次成功；不增加后台进程、常驻日志采集、网络轮询及额外周期唤醒。GMS 心跳、内核 alarmtimer、框架策略、PowerKeeper 原生库及所有现有用户配置均继承 alpha13。
+
+CI Java 测试、完整发行包构建及手机端 SHA-256 校验已通过；发布包 SHA-256：`9055e399d28a4ea7a7a4225e26416a423973d230f248c82e8bf5f3f98dc0d674`。手机尚未安装并重启 alpha14，**不能宣称运行时 Hook 已成功，也不能宣称下一晚实际推送、耗电或旧双模块全功能等效已通过**。旧 E3N FCM Live 在 system_server 内的动态广播 Hook 与单模块静态“10/10”仍需分别验证，不应混为一谈。
+
 ## v0.4.0-alpha.13（预览版）：旧 FCM Live 的 PowerKeeper GMS DNS 保护
 
 **[下载 alpha13 预览版](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.13)**。
