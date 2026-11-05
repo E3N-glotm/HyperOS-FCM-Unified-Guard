@@ -137,20 +137,30 @@ elif [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
 else
   emit GRAY POWERKEEPER "PowerKeeper runtime not included; optional interface discovery unavailable"
 fi
-# alpha14: native library mapping and DEX method discovery are not proof
-# that PowerKeeper OEM hooks actually attached. Read the one-shot, app-private
-# runtime attestation written by the PowerKeeper process itself. The file is
-# at most a few KiB; this read is part of the EXISTING 5-minute status poll.
-pk_runtime_audit=/data/user_de/0/com.miui.powerkeeper/files/fcmu_pk_runtime_alpha14.tsv
+# alpha15: app-private /data/user_de is visible in the OEM application's
+# mount namespace but is intentionally NOT necessarily visible from a Magisk
+# root-shell namespace. Read through /proc/<PID>/root to use the CURRENT
+# PowerKeeper process's filesystem view. Never create/alter private directories.
+# The file is tiny and this only adds one read to the existing status poll.
+pk_runtime_audit=
+if [ "${pk_mapped:-0}" = 1 ] && [ -n "${pk_pid:-}" ] && [ -n "${pk_name:-}" ]; then
+  case "$pk_pid:$pk_name" in
+    *[!A-Za-z0-9_.$:]*|:*|*:) ;;
+    *) pk_runtime_audit="/proc/$pk_pid/root/data/user_de/0/$pk_name/files/fcmu_pk_runtime_alpha14.tsv" ;;
+  esac
+fi
 pk_audit_fresh=0
-if [ -r "$pk_runtime_audit" ]; then
+if [ -n "$pk_runtime_audit" ] && [ -r "$pk_runtime_audit" ]; then
   read -r boot_uptime unused < /proc/uptime
   boot_uptime=${boot_uptime%%.*}
   case "$boot_uptime" in ''|*[!0-9]*) boot_uptime=0;; esac
   pk_boot_epoch=$((now-boot_uptime))
   pk_audit_modified=$(stat -c %Y "$pk_runtime_audit" 2>/dev/null || echo 0)
   case "$pk_audit_modified" in ''|*[!0-9]*) pk_audit_modified=0;; esac
-  if [ "$pk_audit_modified" -gt "$pk_boot_epoch" ] && [ "$pk_audit_modified" -le "$now" ]; then
+  if [ "$pk_audit_modified" -gt "$pk_boot_epoch" ] && [ "$pk_audit_modified" -le "$now" ] &&
+       grep -Fq "alpha14 attach_backup_completed pid=$pk_pid" "$pk_runtime_audit" 2>/dev/null; then
+    # Boot timestamp AND exact running PID must match: old process evidence
+    # cannot make a restarted/unhooked PowerKeeper look healthy.
     pk_audit_fresh=1
   fi
 fi
@@ -162,7 +172,7 @@ if [ "$pk_audit_fresh" = 1 ]; then
       *) emit YELLOW PK_DNS_HOOK "GMS-only DNS hook installed, initial allow not verified: ${pk_dns_result:-unknown}";;
     esac
     if grep -Fq 'first_hit=com.miui.powerkeeper.utils.NetdExecutor#setGmsDnsBlockerState' "$pk_runtime_audit" 2>/dev/null; then
-      emit GREEN PK_DNS_HIT "OEM GMS DNS method intercepted at least once (not proof of push delivery)"
+      emit GREEN PK_DNS_HIT "GMS DNS hook executed at least once (bootstrap allow counts; independent OEM deny not yet confirmed)"
     else
       emit YELLOW PK_DNS_HIT "DNS method install observed; no runtime method hit yet"
     fi
@@ -170,7 +180,7 @@ if [ "$pk_audit_fresh" = 1 ]; then
     emit YELLOW PK_DNS_HOOK "PowerKeeper process audit present, GMS DNS hook not confirmed installed; see private runtime audit"
   fi
 else
-  emit YELLOW PK_DNS_HOOK "No current-boot PowerKeeper method-install evidence; library mapping alone is insufficient"
+  emit YELLOW PK_DNS_HOOK "No current-boot PID-matched PowerKeeper Hook evidence; Zygisk mapping alone is insufficient"
 fi
 
 idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
