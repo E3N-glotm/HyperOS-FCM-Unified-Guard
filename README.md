@@ -8,6 +8,18 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.15（预览版）：修复 Hook 审计跨挂载命名空间误报，区分真实 DNS deny
+
+**[alpha15 预览版及完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.15)**。
+
+2026-11-05 对 alpha14 的现场复查确认：PowerKeeper 进程处于独立的 Android 挂载命名空间，其原生私有 DE 目录和审计记录可通过 `/proc/<PowerKeeper_PID>/root/data/user_de/0/com.miui.powerkeeper/files/fcmu_pk_runtime_alpha14.tsv` 读取，但从 Magisk Root shell 的直接路径 `/data/user_de/0/com.miui.powerkeeper/files/` 不可见。因此“PK_DNS_HOOK 未验证”属于**健康检查路径误报**，不是已证实的 Hook 安装失败。
+
+在 PowerKeeper 自身命名空间中，alpha14 的原始审计证明确实安装了 `GmsObserver.updateFrameworkGmsNetStatus`、`NetdExecutor.setGmsDnsBlockerState` 和 `getDozeWhiteListApps` 三项 ART Hook，且已完成初始 `setGmsDnsBlockerState(10139,false)` 调用。调用时间为 **12:04:50**，随后 **12:05:03** FCM 监控首次记录 Android DNS 恢复，两者相距约 13 秒，仅能证明时间关联，**不能证明这是唯一根因**。旧版双模块的其他系统服务动态 Hook 是否等效、运营商网络/DNS路径异常是否另有原因，还需分析。
+
+alpha15 的健康检查改用当前 PowerKeeper PID 的 `/proc/PID/root` 路径，并核实本次开机时间及当前 PID 对应的 attach 记录，拒绝历史进程数据；增加 `PK_METHODS` 和 `PK_DNS_DENY`，与 `PK_DNS_HOOK`、`PK_DNS_HIT` 分开报告。新版 Java Hook 在收到独立的 **GMS UID `deny=true` 请求**，且已按旧版精准策略成功改写为 `allow` 后，才记录 `first_oem_gms_dns_deny_redirected`。模块自己在启动时发出的 `allow(uid,false)` **不计为独立阻断**。
+
+手机上 alpha14 的健康检查脚本已现场热修复并实测绿色，未重启、未调整网络规则。alpha15 则提供可重复安装的新包，包含跨命名空间读取和独立 deny 审计。**PowerKeeper 原生库、FCM 软重连、内核 alarmtimer、其他后台守护与既有用户配置均未修改。** ZIP SHA-256：`b4700f9ba77d2cf9f6600f51d06bf29e590c06c359216970eb207e2bde515e17`。需要安装 alpha15 并正常重启后，才能验证其新增 Java 事件记录与后续夜间推送效果；未完成真实端到端投递 A/B，也没有声明彻底解决凌晨长断连。
+
 ## v0.4.0-alpha.14（预览版）：修复旧 DNS 禁用遗留状态，并提供 PowerKeeper Hook 真正命中的证据
 
 **[下载 alpha14 完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.14)**。手机 2026-11-05 凌晨 04:39:52–07:16:07 再次断连约 2 小时 36 分钟，GMS 不断报告 `UNKNOWN_HOST`。旧 E3N FCM Live 动态保护 GMS 网络相关 OEM 接口，而统一模块 alpha13 只具备 Zygisk 库加载证据，没有 ART Hook 安装与真实调用证明；并且即便 Hook 成功，也不能自动清除其安装**之前**写入的 GMS UID DNS `deny`。
