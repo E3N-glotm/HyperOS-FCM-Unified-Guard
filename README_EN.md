@@ -8,6 +8,16 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.14 (preview): Restore pre-existing GMS DNS permissions and attest real PowerKeeper hooks
+
+[Download alpha14](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.14). The November 5 overnight session again reported roughly 2h36m of `UNKNOWN_HOST` / FCM disconnection. Although alpha13 included a Zygisk-based PowerKeeper hook, a mapped native library did not prove that any ART method was installed or called. A future-deny interceptor also cannot retroactively undo a GMS UID DNS deny set before the interceptor was installed.
+
+Alpha14 adds a **single, narrowly scoped OEM allow operation** through `NetdExecutor.setGmsDnsBlockerState(actualGmsUid,false)`, but only after the installed PowerKeeper APK byte fingerprint/previously audited method semantics, runtime GMS UID, and actual `hook_installed` result all match. Unknown APKs, failed hooks, and other UIDs retain their original behavior. No system-wide DNS, Box4Magisk or AdGuard Home configuration changes.
+
+For post-reboot verification, the PowerKeeper process writes a small, one-shot audit into its own Device-Encrypted app storage, recording Java attach, method installation results, initial DNS allow status and the first successful call of each method. Health output separately reports `PK_DNS_HOOK` and `PK_DNS_HIT`, rejecting stale files from earlier boots. This adds no service, polling loop or recurring wake alarm.
+
+The ZIP was built/tested on CI and checksum-verified on the phone, but the user must install and reboot before runtime hook and overnight real-message delivery can be validated. The old E3N FCM Live system_server broadcast hooks are **not proven equivalent** to the current static framework patches. This remains a prerelease, not a stable Latest.
+
 ## v0.4.0-alpha.13 (preview): Restore E3N FCM Live GMS DNS protection
 
 [Download alpha13 prerelease](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.13). On Nov 4, alpha12 observed a ~2h29m MCS outage during screen-off idle. The GMS Android resolver reported UNKNOWN_HOST until 07:10, and recovery succeeded at 07:12. The legacy Millet Guard + E3N FCM Live combination also intercepted PowerKeeper's GmsObserver and OEM GMS network restrictions—functionality not equivalent to a simple keepalive, whitelist or TCP port bypass.
