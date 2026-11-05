@@ -1,13 +1,9 @@
 name: Build and publish HyperOS FCM Unified Guard alpha15
 # Alpha15 is automatically built once; after publication the workflow is
 # frozen to avoid rewriting the audited release assets.
+# Release assets and tag are immutable after the verified publication.
+# A new code change must use a newer release tag, never overwrite alpha15.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha15-preview-release.yml'
-      - 'powerkeeper-runtime/**'
-      - 'module/bin/health_status.sh'
-      - 'tests/test_powerkeeper_namespace_alpha15.py'
   workflow_dispatch:
 
 
