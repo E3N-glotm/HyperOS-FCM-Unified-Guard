@@ -165,12 +165,23 @@ if [ -n "$pk_runtime_audit" ] && [ -r "$pk_runtime_audit" ]; then
   fi
 fi
 if [ "$pk_audit_fresh" = 1 ]; then
+  if grep -Fq 'hook pk.gms.updateFrameworkGmsNetStatus=hook_installed' "$pk_runtime_audit" 2>/dev/null &&
+     grep -Fq 'hook pk.doze.whitelist=hook_installed' "$pk_runtime_audit" 2>/dev/null; then
+    emit GREEN PK_METHODS "Verified PowerKeeper GmsObserver and Doze OEM ART hooks installed (message delivery not tested)"
+  else
+    emit YELLOW PK_METHODS "GmsObserver/Doze OEM ART hooks not both confirmed installed"
+  fi
   if grep -Fq 'hook pk.firewall.gmsDnsUidRule=hook_installed' "$pk_runtime_audit" 2>/dev/null; then
     pk_dns_result=$(grep -F 'dns_initial_allow=' "$pk_runtime_audit" 2>/dev/null | tail -n 1 | sed 's/.*dns_initial_allow=/dns_initial_allow=/')
     case "$pk_dns_result" in
-      dns_initial_allow=called*) emit GREEN PK_DNS_HOOK "GMS-only DNS hook installed and initial OEM allow called; actual overnight efficacy unverified";;
+      dns_initial_allow=called*) emit GREEN PK_DNS_HOOK "GMS-only DNS hook installed; initial OEM allow method called (netd policy readback unverified)";;
       *) emit YELLOW PK_DNS_HOOK "GMS-only DNS hook installed, initial allow not verified: ${pk_dns_result:-unknown}";;
     esac
+    if grep -Fq 'first_oem_gms_dns_deny_redirected uid=' "$pk_runtime_audit" 2>/dev/null; then
+      emit GREEN PK_DNS_DENY "Independent GMS-targeted OEM DNS deny request redirected successfully (once; timing in process audit)"
+    else
+      emit GRAY PK_DNS_DENY "No independent OEM GMS DNS deny observed yet; bootstrap allow is not evidence of one"
+    fi
     if grep -Fq 'first_hit=com.miui.powerkeeper.utils.NetdExecutor#setGmsDnsBlockerState' "$pk_runtime_audit" 2>/dev/null; then
       emit GREEN PK_DNS_HIT "GMS DNS hook executed at least once (bootstrap allow counts; independent OEM deny not yet confirmed)"
     else
