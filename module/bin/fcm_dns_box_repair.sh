@@ -62,7 +62,7 @@ find_unbound_failure() {
   printf '%s\n' "$old_source" | busybox awk -F '.' '
     NF!=4 {exit 1}
     {for(i=1;i<=4;i++)
-       if ($i !~ /^[0-9]{1,3}$/ || $i+0>255) exit 1}
+       if ($i !~ /^[0-9]+$/ || length($i)>3 || $i+0>255) exit 1}
   ' || return 1
 
   # A source address that is still assigned is NOT evidence of stale binding:
