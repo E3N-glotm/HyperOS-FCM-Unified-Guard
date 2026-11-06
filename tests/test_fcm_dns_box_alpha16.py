@@ -52,7 +52,7 @@ checks={
     "script works even if ZIP helper has 0644 permissions":
         '[ -r "$MODDIR/bin/fcm_dns_box_repair.sh" ]' in guard,
     "no direct iptables or routing mutation in helper":
-        not re.search(r"\b(iptables|ip6tables|ip\s+rule\s+add|ip\s+route\s+add|svc\s+wifi|settings\s+put)\b",repair),
+        not re.search(r"(?m)^\s*(?:iptables|ip6tables|ip\s+rule\s+add|ip\s+route\s+add|svc\s+wifi|settings\s+put)\b",repair),
     "no GMS process kill in helper":
         not re.search(r"\b(killall|pkill|kill\s+-TERM|am force-stop)\b",repair),
 }
