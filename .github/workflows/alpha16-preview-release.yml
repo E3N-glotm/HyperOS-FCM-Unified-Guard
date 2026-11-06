@@ -1,0 +1,145 @@
+name: Build and publish HyperOS FCM Unified Guard alpha16
+# Trigger once for this tag; freeze after publication.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha16-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha16-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha16:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha16 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha16
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha15 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.15
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha16 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.15-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          helper=pathlib.Path('module/bin/fcm_dns_box_repair.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.15',b'version=0.4.0-alpha.16').replace(b'versionCode=40015',b'versionCode=40016')
+                  dst.writestr(entry,data)
+              script=zipfile.ZipInfo('bin/fcm_dns_box_repair.sh')
+              script.create_system=3
+              script.external_attr=(0o100644 << 16)
+              dst.writestr(script,helper)
+              note=zipfile.ZipInfo('ALPHA16_FCM_DNS_PROXY_RECOVERY.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha16: only after current GMS UID DNS failure and a recent sing-box mtalk.google.com UDP unreachable error from a removed source IP belonging to this exact process, perform one cooldown-limited Box service recovery. Otherwise no action. Original GMS Hook, wakeups, and all user DNS settings unchanged. Overnight validation still required.\\n')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.16' in z.read('module.prop')
+              assert b'versionCode=40016' in z.read('module.prop')
+              assert z.read('bin/fcm_guard.sh')==guard
+              assert z.read('bin/fcm_dns_box_repair.sh')==helper
+              assert b'gms_uid_tcp_ready' in guard and b'min_gap=10800' in guard
+              assert b' -a com.google.android.intent.action.MCS_HEARTBEAT' not in guard
+              assert b'BOX_FCM_DNS_RECOVERY_TRIGGERED' in guard
+              assert b'network is unreachable' in helper and b'MIN_RESTART_GAP=1800' in helper
+              assert b'proxy_started_epoch=' in helper
+              assert b'PK_DNS_DENY' in z.read('bin/health_status.sh')
+              assert z.read('powerkeeper-runtime.dex')==old.read('powerkeeper-runtime.dex')
+              assert z.read('zygisk/arm64-v8a.so')==old.read('zygisk/arm64-v8a.so')
+              assert z.read('bin/fcmu_alarm_wait')==old.read('bin/fcmu_alarm_wait')
+              assert z.read('bin/maintenance_worker.sh')==old.read('bin/maintenance_worker.sh')
+              assert z.read('customize.sh')==old.read('customize.sh')
+              for k in old.namelist():
+                  if k not in ('bin/fcm_guard.sh','module.prop'):
+                      assert z.read(k)==old.read(k), 'unexpected change: '+k
+              assert set(z.namelist())-set(old.namelist()) == {
+                  'bin/fcm_dns_box_repair.sh','ALPHA16_FCM_DNS_PROXY_RECOVERY.txt'}
+              print('verified baseline',len(old.namelist()),'new',len(z.namelist()),'files',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip.sha256
+
+      - name: Publish alpha16 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.16
+          cat > /tmp/alpha16_notes.md <<'EOF'
+          **alpha16 · 夜间 FCM UNKNOWN_HOST 与 Box/sing-box DNS 旧源IP专项恢复（预览版）**
+
+          11 月 6 日凌晨 alpha15 仍发生04:14:31–06:42:02连续约2h27m FCM断连；PowerKeeper三个ART Hook安装正常，但没有独立OEM GMS DNS deny事件。09:49:55另有sing-box真实日志证明mtalk.google.com DNS查询尝试从已经退出活动网络接口的蜂窝旧地址10.101.129.20发往223.5.5.5:53，内核报“network is unreachable”。现有Box网络监控在网络IP/默认路由更换后保护健康代理进程，但仅凭进程存活无法发现UDP DNS陈旧源地址。该DNS故障是实测事实，**不能直接断定凌晨全部时段的唯一根因**。
+
+          alpha16将受限Box DNS恢复逻辑集成到原FCM guard：只有确认GMS UID的Android DNS实时解析失败，且sing-box最近15分钟有mtalk.google.com DNS向53端口发送失败并使用已从全部活动接口移除的IPv4源地址，且该错误发生于当前sing-box进程启动之后、当前默认IPv4路由可用时，才允许借助Box原生box.service执行一次受控恢复。相同错误不重复处理，恢复至少间隔30分钟，Box被禁用/手动停止时绝不干预；正常FCM连接不新增任何检查、定时器或进程。恢复后仅维护原GMS UID 5228–5230直连放行规则，不直接更改系统DNS、全局防火墙、AdGuard Home、代理订阅或其他应用。
+
+          继承alpha15的PowerKeeper Zygisk/Java Hook、静态框架、内核alarmtimer、限频GCM_RECONNECT及所有既有设置。CI包括壳脚本检查、原策略测试、修复安全性契约验证、完整ZIP与alpha15基线逐文件比对；Android现场另用隔离mock证明仅最近真实源地址失效才触发一次恢复，已分配的IP、旧日志、重复事件均不触发。
+          **用户须安装重启后做下一晚实机FCM消息投递和耗电对照；此版本不是已证明彻底解决夜间断连的稳定版。**
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip.sha256 --clobber
+            gh release edit "$TAG" --notes-file /tmp/alpha16_notes.md --prerelease --latest=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.16（FCM DNS失效源IP定向恢复预览版）" --notes-file /tmp/alpha16_notes.md --prerelease --latest=false
+          fi
