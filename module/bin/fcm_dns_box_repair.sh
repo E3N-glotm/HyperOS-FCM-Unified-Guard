@@ -55,6 +55,26 @@ find_unbound_failure() {
   failure_age=$((now_epoch-failure_epoch))
   [ "$failure_age" -ge 0 ] && [ "$failure_age" -le "$MAX_LOG_AGE" ] || return 1
 
+  # The failure must belong to this exact proxy PROCESS. If Box restarted
+  # after the logged error, never restart the new healthy instance because
+  # of a stale entry left over in the same log file.
+  proxy_stat=
+  IFS= read -r proxy_stat < "/proc/$proxy_pid/stat" 2>/dev/null || return 1
+  proxy_tail=${proxy_stat##*) }
+  [ "$proxy_tail" != "$proxy_stat" ] || return 1
+  set -- $proxy_tail
+  [ "$#" -ge 20 ] || return 1
+  shift 19
+  proxy_start_ticks=$1
+  case "$proxy_start_ticks" in ''|*[!0-9]*) return 1;; esac
+  hz=$(getconf CLK_TCK 2>/dev/null) || return 1
+  case "$hz" in ''|*[!0-9]*|0) return 1;; esac
+  read -r uptime_value unused < /proc/uptime || return 1
+  uptime_seconds=${uptime_value%%.*}
+  case "$uptime_seconds" in ''|*[!0-9]*) return 1;; esac
+  proxy_started_epoch=$((now_epoch-uptime_seconds+proxy_start_ticks/hz))
+  [ "$failure_epoch" -ge "$proxy_started_epoch" ] || return 1
+
   old_source=$(printf '%s\n' "$failure_line" \
     | busybox sed -n 's/.*write udp \([0-9][0-9.]*\):[0-9][0-9]*->[0-9][0-9.]*:53: write: network is unreachable.*/\1/p')
   [ -n "$old_source" ] || return 1
@@ -78,7 +98,7 @@ find_unbound_failure() {
   # mobile data / Wi-Fi handover when no valid egress has been established.
   ip -4 route get 223.5.5.5 >/dev/null 2>&1 || return 1
 
-  failure_signature="$failure_epoch:$old_source:$proxy_pid"
+  failure_signature="$failure_epoch:$old_source:$proxy_pid:$proxy_start_ticks"
   [ -n "$failure_signature" ]
 }
 
