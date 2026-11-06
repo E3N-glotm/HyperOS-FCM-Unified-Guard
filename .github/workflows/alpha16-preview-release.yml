@@ -113,7 +113,7 @@ jobs:
                   'bin/fcm_dns_box_repair.sh','ALPHA16_FCM_DNS_PROXY_RECOVERY.txt'}
               print('verified baseline',len(old.namelist()),'new',len(z.namelist()),'files',out.stat().st_size,'bytes')
           checksum=hashlib.sha256(out.read_bytes()).hexdigest()
-          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\\n')
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
           print('SHA256',checksum)
           PY
           cd dist
