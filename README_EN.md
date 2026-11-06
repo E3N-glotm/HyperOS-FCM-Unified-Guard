@@ -8,6 +8,18 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.16 (preview): Scoped repair of stale sing-box FCM DNS source addresses
+
+[Alpha16 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.16). On Nov 6, FCM disconnected between 04:14:31 and 06:42:02, reporting repeated GMS UNKNOWN_HOST. Three independent PowerKeeper hooks were demonstrably installed; no independent OEM GMS DNS deny was recorded. Therefore the missing-hook hypothesis does not explain the whole incident.
+
+At 09:49:55, sing-box separately logged a concrete DNS socket failure: a lookup of `mtalk.google.com` attempted UDP from the no-longer-assigned cellular address `10.101.129.20` to `223.5.5.5:53` and failed with `network is unreachable`. The live cellular and Wi-Fi addresses were `10.22.168.76` and `192.168.220.101`. Box's anti-churn network handler preserved the living sing-box process through several default-route and IP transitions, which need not mean its previously-bound DNS socket remains usable. This later failure is proven; its exact contribution to the entire overnight outage is **not** proven.
+
+Alpha16 invokes a narrowly gated diagnostic/repair **only on an already-observed GMS-UID DNS failure**. A Box restart through its own service manager is permitted only when a fresh (15-minute) sing-box log proves an `mtalk.google.com` UDP/53 `network is unreachable` failure from an IPv4 source no longer assigned to any active interface, belonging to the current sing-box PID/start time, with a usable route present. Duplicate error evidence cannot trigger again; recoveries are spaced by at least 30 minutes. A manually stopped/disabled Box is untouched. Normal FCM operation adds no polling, alarm or restart.
+
+All original GMS and OEM hooks, the native Zygisk library, scoped wake alarm, FCM recovery policy, and user DNS/proxy configurations remain unchanged. Android isolated mocks verified the allow/deny conditions; CI passed policy regressions, ZIP integrity checks and byte-level comparisons against alpha15. The currently running phone already received a non-disruptive hotfix of the two shell files, while installing alpha16 is needed to make it an upgradeable Magisk release. Neither nighttime FCM reliability nor end-to-end push delivery is yet proven.
+
+SHA-256: `04f5c4759b33b619b3556b6d7b3d5738c4b07a183b10b2dd86e8494c9d6a5559`.
+
 ## v0.4.0-alpha.15 (preview): Fix PowerKeeper runtime audit across Android mount namespaces
 
 [Alpha15 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.15). A real-device investigation on Nov 5 confirmed that the PowerKeeper app's Device-Encrypted private audit lives in its **own mount namespace**. The file exists under `/proc/<PowerKeeper_PID>/root/data/user_de/0/com.miui.powerkeeper/files/fcmu_pk_runtime_alpha14.tsv` although the Magisk shell's direct `/data/user_de/0/com.miui.powerkeeper/files/` path does not exist. Alpha14's apparent missing-hook report was therefore a **diagnostic false negative**.
