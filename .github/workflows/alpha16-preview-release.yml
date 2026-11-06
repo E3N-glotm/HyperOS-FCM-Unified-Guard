@@ -1,9 +1,8 @@
 name: Build and publish HyperOS FCM Unified Guard alpha16
 # Trigger once for this tag; freeze after publication.
+# Published alpha16 assets are immutable. Any new changes require a
+# distinct release tag rather than replacing a verified download.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha16-preview-release.yml'
   workflow_dispatch:
 
 permissions:
