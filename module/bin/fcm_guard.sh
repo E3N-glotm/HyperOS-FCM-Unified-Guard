@@ -533,7 +533,7 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
     # default route. Trigger only a bounded, evidence-gated Box recovery on
     # this CONFIRMED current GMS resolver failure; all normal/healthy FCM
     # checks have zero added work. Unknown Box/other phones skip safely.
-    if [ -x "$MODDIR/bin/fcm_dns_box_repair.sh" ]; then
+    if [ -r "$MODDIR/bin/fcm_dns_box_repair.sh" ]; then
       repaired=$("$BB" timeout 85 /system/bin/sh "$MODDIR/bin/fcm_dns_box_repair.sh" repair 2>/dev/null || true)
       if [ "$repaired" = BOX_FCM_DNS_RECOVERY_TRIGGERED ]; then
         # Box's own lifecycle rebuilds its chains. Restore this narrow
