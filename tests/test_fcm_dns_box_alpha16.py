@@ -31,6 +31,10 @@ checks={
     "requires source no longer present on live network interfaces":
         'ip -4 -o addr show scope global up' in repair and
         'if(p[1]==address) found=1' in repair,
+    "stale evidence belongs to current proxy PID instance, not previous restart":
+        'proxy_started_epoch=$((now_epoch-uptime_seconds+proxy_start_ticks/hz))' in repair and
+        '"$failure_epoch" -ge "$proxy_started_epoch"' in repair and
+        'failure_signature="$failure_epoch:$old_source:$proxy_pid:$proxy_start_ticks"' in repair,
     "must still have a usable IPv4 route":
         "ip -4 route get 223.5.5.5" in repair,
     "fresh evidence only":
