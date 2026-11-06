@@ -8,6 +8,20 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.16（预览版）：FCM DNS 失效源地址的定向恢复
+
+**[alpha16 Release 和 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.16)**。
+
+2026-11-06 凌晨，alpha15 的 FCM 从 04:14:31 断连至 06:42:02，GMS 多次报告 UNKNOWN_HOST；原有 PowerKeeper GmsObserver、NetdExecutor GMS DNS、Doze 三项 ART Hook 均有真实安装证据，却没有独立 OEM GMS DNS deny 请求被拦截的记录。**这证明此前的 PowerKeeper Hook 误报已消除，但不能将全部夜间断连归因于 PowerKeeper。**
+
+进一步调查得到一项真实、独立的网络故障：当天 09:49:55，sing-box 处理 `mtalk.google.com` DNS 时，尝试用旧蜂窝地址 `10.101.129.20:57694` 发送 UDP 到 `223.5.5.5:53`，内核返回 `network is unreachable`。彼时有效地址是蜂窝 `10.22.168.76` 和 Wi-Fi `192.168.220.101`，已不含旧地址。旧 Box 网络监控为避免断流，在IP/默认路由变化后倾向保留仍存活的代理进程，但存活并不等于 DNS 出站套接字使用的旧源 IP 仍有效。**09:49 的失效地址证据不能直接证明 04:14–06:40 的全部 DNS 故障由同一因素造成。**
+
+alpha16 在原有 FCM Guard 确认当前 GMS UID 的 Android DNS 无法解析 `mtalk.google.com` 时，新增一次受限检查：要求 sing-box 的最近 15 分钟日志有同域名 UDP/53 向上游发送 `network is unreachable` 的错误；报错源 IPv4 不属于任何当前启用的接口；错误产生于**当前 sing-box 进程**启动之后，且手机仍有可用 IPv4 路由；还要求用户没有禁用/手动停用 Box。全部成立后，才使用 Box 自己的 `box.service restart` 正常恢复。相同错误最多处理一次，两次恢复至少间隔 30 分钟。正常在线时不增加探测、周期线程、定时唤醒，其他 DNS 错误也不会触发重启；恢复后仅维护原有 GMS UID 5228–5230 TCP 放行规则。
+
+此次不修改系统 DNS、sing-box 配置、AdGuard Home、PowerKeeper、GMS 服务、全局路由规则或其他应用。Android 实机用隔离模拟的 Box 服务验证了新鲜失效源地址触发一次恢复、重复事件/仍有效源地址/陈旧日志不触发；GitHub Actions 的原有回归、完整 ZIP、组件字节一致性测试通过。原手机的 alpha15 已热更新同一 FCM Guard 与辅助脚本，无须立即重启即可应用此保护；要将其作为可重复安装的版本，安装并重启 alpha16。其原生 Zygisk、PowerKeeper DEX、内核唤醒和其他后台守护文件均与 alpha15 一致。
+
+**SHA-256：`04f5c4759b33b619b3556b6d7b3d5738c4b07a183b10b2dd86e8494c9d6a5559`。是否已彻底解决凌晨长断连，还必须以随后完整锁屏夜间的 FCM 和真实推送证据判断。**
+
 ## v0.4.0-alpha.15（预览版）：修复 Hook 审计跨挂载命名空间误报，区分真实 DNS deny
 
 **[alpha15 预览版及完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.15)**。
