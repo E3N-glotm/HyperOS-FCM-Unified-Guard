@@ -1,0 +1,139 @@
+name: Build and publish HyperOS FCM Unified Guard alpha17
+# One-time audited preview build, then freeze this release.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha17-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha17-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha17:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha17 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha17
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha16 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.16
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha17 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.16-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          helper=pathlib.Path('module/bin/fcm_dns_box_repair.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='bin/fcm_dns_box_repair.sh':
+                      data=helper
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.16',b'version=0.4.0-alpha.17').replace(b'versionCode=40016',b'versionCode=40017')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA17_GMS_UID_DNS_DIFFERENTIAL.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha17: diagnose root-vs-GMS UID DNS differential only during sustained FCM outage. After >15m, if GMS UID libc DNS fails with confirmed lookup error but root raw upstream resolves and Box DNS TProxy interception is active, allow one proxy service recovery per outage, globally at most every 6h, probing at most every 15m. Keep original alpha16 stale-IP repair; no change when healthy. Unproven overnight reliability.\n')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.17' in z.read('module.prop')
+              assert b'versionCode=40017' in z.read('module.prop')
+              assert z.read('bin/fcm_guard.sh')==guard
+              assert z.read('bin/fcm_dns_box_repair.sh')==helper
+              assert b'gms_uid_tcp_ready' in guard and b'min_gap=10800' in guard
+              assert b' -a com.google.android.intent.action.MCS_HEARTBEAT' not in guard
+              assert b'fallback "$down_since"' in guard
+              assert b'fallback_outage.epoch' in helper and b'fallback_last.epoch' in helper
+              assert b'21600' in helper and b'raw_dns_ok' in helper
+              assert b'PK_DNS_DENY' in z.read('bin/health_status.sh')
+              for item in ('powerkeeper-runtime.dex','zygisk/arm64-v8a.so','bin/fcmu_alarm_wait','bin/maintenance_worker.sh','bin/health_status.sh','customize.sh'):
+                  assert z.read(item)==old.read(item), 'protected component changed: '+item
+              for item in old.namelist():
+                  if item not in ('bin/fcm_guard.sh','bin/fcm_dns_box_repair.sh','module.prop'):
+                      assert z.read(item)==old.read(item), 'unexpected component change: '+item
+              assert set(z.namelist())-set(old.namelist()) == {'ALPHA17_GMS_UID_DNS_DIFFERENTIAL.txt'}
+              print('verified',len(old.namelist()),'baseline files,',len(z.namelist()),'new files, bytes',out.stat().st_size)
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip.sha256
+
+      - name: Publish alpha17 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.17
+          cat > /tmp/alpha17_notes.md <<'EOF'
+          **alpha17 · 夜间 GMS DNS 差分诊断与严格受限代理恢复（预览版）**
+
+          2026-11-07凌晨alpha16再次在05:08:31–07:27:33断连约2小时19分钟，GMS持续UNKNOWN_HOST。三项PowerKeeper ART Hook在实机正常、GMS DNS UID hook无独立deny记录，5228 TCP直连和系统白名单仍正常。alpha16只在日志中出现“mtalk.google.com UDP DNS 从已经失效的IP发送并得到network is unreachable”时恢复Box；本次夜间未观察到该精确证据，因此没有触发。现在不能将整段故障归因于Box，夜间网络/Netd/PowerKeeper其余接口尚待验证。
+
+          alpha17继承所有alpha16保护，新增第二级差分诊断，仅在GMS已断连至少15分钟且当前UID libc DNS确实出现明确的域名解析错误，同时Root对显式上游DNS的查询仍能返回mtalk.google.com结果、Box4Magisk的UDP/53捕获规则有效、存在IPv4路由、当前sing-box进程正常运行超过20分钟、用户未手动停止代理等条件全部成立时，才调用Box原生service执行一次受控恢复。一次断连最多一次，全局至少相隔6小时，差分探测至少间隔15分钟；Root上游也不可用时不操作，仅由原守护流程继续检测。正常FCM在线时不增加任何探测、唤醒或进程，且不重启GMS、不切换数据网络、不改系统DNS和其他应用规则。重启Box可能短暂影响正在使用代理的连接，此风险已明确保留。
+
+          Java/壳脚本回归和安全门控契约由CI验证；原生Zygisk、PowerKeeper DEX、Kernel alarmtimer、健康诊断、用户配置及全部不相关安装包文件与alpha16逐字节保持一致。**当前只是针对可检验的网络差分路径增加低频恢复机会，不宣称已证明凌晨两小时断连的唯一根因或修复后的长期稳定性。须安装重启后观察下个夜晚FCM真实连接/推送。**
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip.sha256 --clobber
+            gh release edit "$TAG" --notes-file /tmp/alpha17_notes.md --prerelease --latest=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.17（FCM DNS差分诊断与低频自愈预览版）" --notes-file /tmp/alpha17_notes.md --prerelease --latest=false
+          fi
