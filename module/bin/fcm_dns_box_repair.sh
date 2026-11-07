@@ -160,6 +160,10 @@ if [ "$mode" = fallback ]; then
   case "$last_any" in ''|*[!0-9]*) last_any=0;; esac
   [ $((now_epoch-last_any)) -ge 1800 ] || exit 0
   [ "$(cat "$STATE_DIR/fallback_outage.epoch" 2>/dev/null)" != "$outage_stamp" ] || exit 0
+  last_probe=$(cat "$STATE_DIR/fallback_probe.epoch" 2>/dev/null)
+  case "$last_probe" in ''|*[!0-9]*) last_probe=0;; esac
+  [ $((now_epoch-last_probe)) -ge 900 ] || exit 0
+  printf '%s\n' "$now_epoch" > "$STATE_DIR/fallback_probe.epoch"
 
   # GMS's own libc resolver must STILL fail, and with an explicit DNS error.
   # Missing su/PING permission or an unreachable ICMP target is not enough.
