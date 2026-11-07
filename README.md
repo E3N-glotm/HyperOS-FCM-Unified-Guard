@@ -8,6 +8,20 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.17（预览版）：夜间 DNS 差分诊断与受限恢复
+
+**[alpha17 完整 Magisk ZIP 与发行说明](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.17)**。
+
+11 月 7 日实测，已安装 alpha16 的手机仍在 05:08:31–07:27:33 遭遇约 2 小时 19 分的 FCM 断连，GMS 持续报告 UNKNOWN_HOST，直到 07:25:35 Android DNS 才恢复。原有三项 PowerKeeper ART Hook 均有安装及部分方法调用证据、GMS 免限制和 5228–5230 TCP 直连规则仍正常，且没有观察到独立的 OEM GMS DNS deny 调用。alpha16 因只接受 sing-box 日志中“特定域名从旧源IP向DNS服务器发送报 network is unreachable”的单一故障格式，无法对本次缺少该格式日志的长期断连做出恢复。**目前没有足够证据认定 sing-box 是整段夜间断连的唯一原因。**
+
+alpha17 完整保留 alpha16 的精准旧 IP 故障处理，同时新增第二级、差分证据门控：FCM 真实断连至少 15 分钟，当前 GMS UID 通过 Android libc 的 `mtalk.google.com` DNS 查询仍返回明确解析失败，而 Root 对显式上游 `223.5.5.5` 或 `61.139.2.69` 的直接 DNS 查询成功，并且 Box4Magisk 确有 UDP 53 捕获规则、当前有可用 IPv4 出站路由、sing-box 进程已正常运行至少 20 分钟、用户未手动停用代理时，才**允许调用一次 Box 原生服务管理器恢复代理**。普通超时、权限异常、无可用路由、上游 DNS 本身不可访问时都不会触发。
+
+同一 FCM 断连期间最多执行一次第二级恢复，全部第二级恢复之间至少间隔 6 小时，差分检测每 15 分钟最多一次。恢复 Box 可能短暂中断其他应用已有的代理连接，但不修改代理订阅、系统 DNS、AdGuard Home、OEM APK、PowerKeeper Hook、默认路由或防火墙全局策略，不强制切换蜂窝/Wi-Fi，也不重启 GMS。FCM 正常在线时没有新增探测、周期线程或唤醒。
+
+**验收：** GitHub Actions 全部回归及完整 ZIP/旧版本保护组件逐文件一致性检查通过；实机验证当前 FCM 在线时不触发任何重启；隔离模拟验证真实门控满足时仅执行一次模拟 Box 恢复，同次断连重试被阻止，新断连在 6 小时内也被阻止。已将正式 ZIP 的两份 Shell 文件热更新到手机现有 alpha16，未重启服务；安装 alpha17 ZIP 后可保留版本升级能力。**尚未完成下一个完整夜间的端到端推送和长期功耗验证，不应宣称根因已完全解决或标记稳定版。**
+
+完整 ZIP SHA-256：`f527df3567ecc23597dcf18c6279c53e531ae607dc2f6e2933c5b1b5c9a0ec8e`。
+
 ## v0.4.0-alpha.16（预览版）：FCM DNS 失效源地址的定向恢复
 
 **[alpha16 Release 和 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.16)**。
