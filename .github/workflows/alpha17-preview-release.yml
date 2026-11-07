@@ -38,7 +38,7 @@ jobs:
           python3 tests/test_powerkeeper_dns_attestation_alpha13.py
           python3 tests/test_powerkeeper_runtime_alpha14.py
           python3 tests/test_powerkeeper_namespace_alpha15.py
-          # Check old alpha16 exact-error path and new alpha17 differential path independently.
+          # Both paths must remain fail-closed; the legacy test now permits read-only firewall inspection but no rules mutation.
           python3 tests/test_fcm_dns_box_alpha16.py
           python3 tests/test_fcm_dns_differential_alpha17.py
           python3 powerkeeper-runtime/test_runtime.py
