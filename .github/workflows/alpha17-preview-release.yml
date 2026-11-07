@@ -1,9 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha17
 # One-time audited preview build, then freeze this release.
+# Published artifact and tag are immutable. Further fixes require a newer tag.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha17-preview-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -132,9 +130,8 @@ jobs:
           Java/壳脚本回归和安全门控契约由CI验证；原生Zygisk、PowerKeeper DEX、Kernel alarmtimer、健康诊断、用户配置及全部不相关安装包文件与alpha16逐字节保持一致。**当前只是针对可检验的网络差分路径增加低频恢复机会，不宣称已证明凌晨两小时断连的唯一根因或修复后的长期稳定性。须安装重启后观察下个夜晚FCM真实连接/推送。**
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip.sha256 --clobber
-            gh release edit "$TAG" --notes-file /tmp/alpha17_notes.md --prerelease --latest=false
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            echo "Published alpha17 is immutable; release a new version instead of overwriting" >&2
+            exit 1
           else
             gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.17（FCM DNS差分诊断与低频自愈预览版）" --notes-file /tmp/alpha17_notes.md --prerelease --latest=false
           fi
