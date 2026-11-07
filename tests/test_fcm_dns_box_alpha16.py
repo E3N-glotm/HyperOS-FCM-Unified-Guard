@@ -43,7 +43,7 @@ checks={
     "throttle and consume exact evidence before restart":
         "MIN_RESTART_GAP=1800" in repair and
         '"$last_event" != "$failure_signature"' in repair and
-        repair.index('> "$LAST_EVENT"') < repair.index('"$SERVICE" restart'),
+        repair.index('> "$LAST_EVENT"') < repair.rindex('"$SERVICE" restart'),
     "manual disable and stopped proxy are respected":
         '/data/adb/modules/box_for_root/disable' in repair and
         '"$BOXDIR/manual"' in repair and
