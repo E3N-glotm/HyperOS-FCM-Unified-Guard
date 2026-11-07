@@ -540,6 +540,19 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
         # GMS TCP bypass after it finishes, never modify DNS/other UIDs.
         ensure_fcm_uid_bypass
         # Re-evaluate DNS via the ordinary next poll, not a busy retry loop.
+      elif [ "$outage" -ge 900 ] 2>/dev/null; then
+        # alpha17: alpha16's exact stale-source log is often absent in a
+        # background failure, leaving hours of repeated UNKNOWN_HOST.
+        # Independent gates inside this helper demand: CURRENT GMS resolver
+        # failure, raw upstream DNS success under root, actual Box DNS
+        # interception and no manual Box disable. One recovery per outage,
+        # 6-hour global floor, and at most one probe every 15 minutes.
+        # Do not restart GMS or alter network settings on this path.
+        fallback=$("$BB" timeout 105 /system/bin/sh \
+          "$MODDIR/bin/fcm_dns_box_repair.sh" fallback "$down_since" 2>/dev/null || true)
+        if [ "$fallback" = BOX_FCM_DNS_RECOVERY_TRIGGERED ]; then
+          ensure_fcm_uid_bypass
+        fi
       fi
     fi
 
