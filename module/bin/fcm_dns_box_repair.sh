@@ -25,7 +25,7 @@ MIN_RESTART_GAP=1800
 MAX_LOG_AGE=900
 
 mode=${1:-probe}
-case "$mode" in probe|repair) :;; *) exit 2;; esac
+case "$mode" in probe|repair|fallback) :;; *) exit 2;; esac
 
 # Fail closed on ROMs without Box4Magisk, when the user has disabled/stopped
 # the proxy, or if the process is not the current tracked sing-box instance.
@@ -101,6 +101,104 @@ find_unbound_failure() {
   failure_signature="$failure_epoch:$old_source:$proxy_pid:$proxy_start_ticks"
   [ -n "$failure_signature" ]
 }
+
+# alpha17: a SECOND, independently gated recovery path for nights when the
+# Android resolver fails for many minutes but sing-box did not emit the exact
+# stale-source error required by alpha16. This is deliberately NOT a generic
+# "restart on UNKNOWN_HOST": it requires a root-vs-GMS resolver mismatch,
+# a live, mature Box process, active Box DNS capture, a valid IPv4 route and
+# one attempt PER outage with at least a 6-hour global floor.
+if [ "$mode" = fallback ]; then
+  outage_stamp=${2:-0}
+  case "$outage_stamp" in ''|*[!0-9]*) exit 0;; esac
+  now_epoch=$(date +%s)
+  outage_age=$((now_epoch-outage_stamp))
+  [ "$outage_age" -ge 900 ] && [ "$outage_age" -le 86400 ] || exit 0
+  [ -r "$RUNDIR/fcm_down_since.epoch" ] || exit 0
+  read -r real_down < "$RUNDIR/fcm_down_since.epoch" || exit 0
+  [ "$real_down" = "$outage_stamp" ] || exit 0
+
+  # GMS UID, unlike root, may be subject to per-app firewall/DNS restrictions.
+  gms_uid=$(cat "$RUNDIR/fcm_bypass.uid" 2>/dev/null)
+  case "$gms_uid" in ''|*[!0-9]*) exit 0;; esac
+  [ "$gms_uid" -ge 10000 ] || exit 0
+  [ "$gms_uid" = "$(pm list packages -U com.google.android.gms 2>/dev/null \
+      | busybox awk '$1=="package:com.google.android.gms" {sub(/^uid:/,"",$2);print $2;exit}')" ] || exit 0
+
+  # Box's DNS capture must actually be present. Merely having sing-box
+  # running is insufficient evidence that its DNS path is implicated.
+  iptables -w 5 -t mangle -S BOX_LOCAL 2>/dev/null \
+    | grep -Eq -- '^-A BOX_LOCAL .*udp .*--dport 53 .*MARK' || exit 0
+  ip -4 route get 223.5.5.5 >/dev/null 2>&1 || exit 0
+
+  # Do not disturb a newly started or recently recovered proxy.
+  process_stat=
+  IFS= read -r process_stat < "/proc/$proxy_pid/stat" 2>/dev/null || exit 0
+  process_tail=${process_stat##*) }
+  [ "$process_tail" != "$process_stat" ] || exit 0
+  set -- $process_tail
+  [ "$#" -ge 20 ] || exit 0
+  shift 19
+  process_ticks=$1
+  case "$process_ticks" in ''|*[!0-9]*) exit 0;; esac
+  hz=$(getconf CLK_TCK 2>/dev/null) || exit 0
+  case "$hz" in ''|*[!0-9]*|0) exit 0;; esac
+  read -r up_seconds unused < /proc/uptime || exit 0
+  up_seconds=${up_seconds%%.*}
+  case "$up_seconds" in ''|*[!0-9]*) exit 0;; esac
+  process_age=$((up_seconds-process_ticks/hz))
+  [ "$process_age" -ge 1200 ] || exit 0
+
+  mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+  mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+  trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT HUP INT TERM
+
+  last_fallback=$(cat "$STATE_DIR/fallback_last.epoch" 2>/dev/null)
+  case "$last_fallback" in ''|*[!0-9]*) last_fallback=0;; esac
+  [ $((now_epoch-last_fallback)) -ge 21600 ] || exit 0
+  last_any=$(cat "$LAST_EPOCH" 2>/dev/null)
+  case "$last_any" in ''|*[!0-9]*) last_any=0;; esac
+  [ $((now_epoch-last_any)) -ge 1800 ] || exit 0
+  [ "$(cat "$STATE_DIR/fallback_outage.epoch" 2>/dev/null)" != "$outage_stamp" ] || exit 0
+
+  # GMS's own libc resolver must STILL fail, and with an explicit DNS error.
+  # Missing su/PING permission or an unreachable ICMP target is not enough.
+  uid_lookup=$(busybox timeout 7 su -s /system/bin/sh "$gms_uid" \
+    -c '/system/bin/ping -c 1 -W 1 mtalk.google.com' 2>&1)
+  if printf '%s\n' "$uid_lookup" | grep -Eq '^PING[[:space:]].*\([0-9][0-9.]*\)'; then
+    exit 0
+  fi
+  printf '%s\n' "$uid_lookup" | grep -Eqi 'unknown host|bad address|name or service not known|temporary failure in name resolution' || exit 0
+
+  # Root explicitly queries a raw DNS upstream instead of Android libc.
+  # If ROOT also cannot reach either upstream, we are dealing with a real
+  # transport/DNS outage, not a locally isolated resolver path: do nothing.
+  raw_dns_ok=0
+  for upstream in 223.5.5.5 61.139.2.69; do
+    raw_result=$(busybox timeout 6 busybox nslookup mtalk.google.com "$upstream" 2>/dev/null)
+    if printf '%s\n' "$raw_result" | grep -Fq 'Name:      mtalk.google.com'; then
+      raw_dns_ok=1
+      break
+    fi
+  done
+  [ "$raw_dns_ok" = 1 ] || exit 0
+
+  # Record a bounded diagnosis once, before any intervention. This is not
+  # proof that Box caused the fault: label it explicitly as differential.
+  printf '%s FCM guard: root upstream DNS resolves but GMS UID Android DNS fails for %ss; Box DNS capture active, allowing ONE conditional proxy recovery; cause unproven\n' \
+    "$(date '+%F %T')" "$outage_age" >> "$OUTLOG"
+  printf '%s\n' "$outage_stamp" > "$STATE_DIR/fallback_outage.epoch"
+  printf '%s\n' "$now_epoch" > "$STATE_DIR/fallback_last.epoch"
+  printf '%s\n' "$now_epoch" > "$LAST_EPOCH"
+
+  busybox timeout 75 /system/bin/sh "$SERVICE" restart >/dev/null 2>&1
+  rc=$?
+  printf '%s FCM guard: root-vs-GMS DNS differential Box recovery rc=%s; reevaluate at next normal poll\n' \
+      "$(date '+%F %T')" "$rc" >> "$OUTLOG"
+  [ "$rc" -eq 0 ] || exit 1
+  printf 'BOX_FCM_DNS_RECOVERY_TRIGGERED\n'
+  exit 0
+fi
 
 find_unbound_failure || exit 0
 if [ "$mode" = probe ]; then
