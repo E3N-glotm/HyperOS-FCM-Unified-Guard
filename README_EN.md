@@ -8,6 +8,18 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.17 (preview): Differential DNS verification and tightly gated nighttime recovery
+
+[Alpha17 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.17).
+
+On Nov 7 the phone running alpha16 again lost FCM connectivity from 05:08:31 to 07:27:33 (~2h19m) with repeated GMS UNKNOWN_HOST. Three PowerKeeper ART hooks were installed and key GMS exemptions were active; no independent OEM GMS DNS deny was recorded. Alpha16's only proxy recovery path required a particular sing-box stale-source-IP error message, absent from the overnight evidence. **The full root cause is still unproven; do not attribute every DNS outage exclusively to Box or PowerKeeper.**
+
+Alpha17 retains alpha16's exact stale-source detection and adds an independent fallback after at least 15 minutes of a confirmed FCM outage, **only when GMS UID Android-libc DNS still fails with a recognized lookup error while explicit Root upstream DNS queries resolve mtalk.google.com**, Box's UDP/53 capture rule is present, IPv4 routing is available, sing-box has run for 20 minutes, and the user has not disabled or manually stopped Box. All these gates must pass before a single controlled recovery using Box's own service manager is allowed. There is **at most one fallback per outage**, a **six-hour minimum interval between fallback recoveries**, and differential probing no more than once per 15 minutes during a sustained outage. No additional background worker, alarm, global DNS settings, mobile data toggles or GMS process restarts are introduced.
+
+Restarting Box can briefly interrupt other proxied application connections. This is an explicitly bounded tradeoff rather than a claim of proven root-cause repair. Existing Zygisk/PowerKeeper hooks, the native wake alarm, other guard components and user proxy/AdGuard Home settings are byte-for-byte unchanged. GitHub Actions passed regression and ZIP integrity checks. On-device online no-op tests left sing-box and GMS untouched, and isolated mock tests showed one controlled recovery with same-outage suppression and the six-hour floor. Both updated shell scripts were hot-patched into the running alpha16 module and the official alpha17 ZIP was saved to Downloads, but **overnight real-message delivery and battery-consumption equivalence remain unverified**.
+
+SHA-256: `f527df3567ecc23597dcf18c6279c53e531ae607dc2f6e2933c5b1b5c9a0ec8e`.
+
 ## v0.4.0-alpha.16 (preview): Scoped repair of stale sing-box FCM DNS source addresses
 
 [Alpha16 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.16). On Nov 6, FCM disconnected between 04:14:31 and 06:42:02, reporting repeated GMS UNKNOWN_HOST. Three independent PowerKeeper hooks were demonstrably installed; no independent OEM GMS DNS deny was recorded. Therefore the missing-hook hypothesis does not explain the whole incident.
