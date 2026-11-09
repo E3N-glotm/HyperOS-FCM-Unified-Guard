@@ -1,0 +1,146 @@
+name: Build and publish HyperOS FCM Unified Guard alpha18
+# Create alpha18 preview once; do not rewrite a published release.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha18-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha18-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha18:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha18 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          # Both paths must remain fail-closed; the legacy test now permits read-only firewall inspection but no rules mutation.
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 tests/test_fcm_dns_forensics_alpha18.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha18
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha17 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.17
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha18 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.17-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.18-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          helper=pathlib.Path('module/bin/fcm_dns_box_repair.sh').read_bytes()
+          diag=pathlib.Path('module/bin/fcm_dns_differential_diag.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.17',b'version=0.4.0-alpha.18').replace(b'versionCode=40017',b'versionCode=40018')
+                  dst.writestr(entry,data)
+              diagnostic=zipfile.ZipInfo('bin/fcm_dns_differential_diag.sh')
+              diagnostic.create_system=3
+              diagnostic.external_attr=(0o100644 << 16)
+              dst.writestr(diagnostic,diag)
+              note=zipfile.ZipInfo('ALPHA18_DNS_FORENSICS_READONLY.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha18: read-only staged FCM DNS failure diagnostics (15min cadence, 96 history rows) and 30min soft-reconnect throttle for sustained unresolvable DNS. No additional workers, alarm timers, network policy changes or new GMS restarts. Overnight push reliability has not been verified.')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.18' in z.read('module.prop')
+              assert b'versionCode=40018' in z.read('module.prop')
+              assert z.read('bin/fcm_guard.sh')==guard
+              assert z.read('bin/fcm_dns_differential_diag.sh')==diag
+              assert b'gms_uid_tcp_ready' in guard and b'min_gap=10800' in guard
+              assert b' -a com.google.android.intent.action.MCS_HEARTBEAT' not in guard
+              assert b'fallback "$down_since"' in guard and b'soft_gap=1800' in guard
+              assert b'root_gms_dns_differential_present' in diag
+              assert b'upstream_or_transport_unavailable' in diag
+              assert b'PK_DNS_DENY' in z.read('bin/health_status.sh')
+              for item in ('powerkeeper-runtime.dex','zygisk/arm64-v8a.so','bin/fcmu_alarm_wait','bin/maintenance_worker.sh','bin/health_status.sh','bin/fcm_dns_box_repair.sh','customize.sh'):
+                  assert z.read(item)==old.read(item), 'protected component changed: '+item
+              for item in old.namelist():
+                  if item not in ('bin/fcm_guard.sh','module.prop'):
+                      assert z.read(item)==old.read(item), 'unexpected file change: '+item
+              assert set(z.namelist())-set(old.namelist()) == {
+                  'bin/fcm_dns_differential_diag.sh','ALPHA18_DNS_FORENSICS_READONLY.txt'}
+              print('verified',len(old.namelist()),'baseline files,',len(z.namelist()),'new files, bytes',out.stat().st_size)
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.18-integrated.zip.sha256
+
+      - name: Publish alpha18 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.18
+          cat > /tmp/alpha18_notes.md <<'EOF'
+          **alpha18 · FCM夜间DNS故障逐阶段取证及低功耗修复（预览版）**
+
+          2026年11月9日 alpha17 仍发生04:28:27–07:06:15约2小时38分钟持续FCM UNKNOWN_HOST。PowerKeeper三个Hook安装、GMS UID=10139、端口放行在当前状态正常，但第二级恢复从未记录执行；因此无法断定它在夜间是哪项条件失败，更不能断言代理是唯一原因。
+
+          alpha18在GMS当前DNS无法解析且FCM断联≥15分钟时，每15分钟最多执行一次独立的只读飞行记录，区分：Box是否被停用、进程/启动时间、GMS UID、DNS捕获规则、IPv4路由接口、GMS UID域名解析、Root显式上游DNS、6小时恢复限频以及失败门控。状态位于 /data/adb/fcm_unified_guard/dns_differential/latest.tsv ，history.tsv保留最多96条记录。没有任何新的常驻线程、任务或唤醒；不改路由、不清空缓存、不切换蜂窝/Wi-Fi、不修改其他应用设置。
+
+          另将持续DNS失败超过15分钟后的无效GCM_RECONNECT广播限为30分钟最多一次；前15分钟快速恢复机制不变，已有FCM路径复检、DNS恢复和受限GMS重启保持原行为。此改动降低无效重试及后台唤醒开销，不代表已修复根本网络故障。
+
+          alpha17原生Zygisk、PowerKeeper DEX、内核alarmtimer、所有Box实际恢复策略及用户DNS/AdGuard设置均保持原样；CI执行全套回归与完整ZIP/alpha17保护组件逐字节一致性、SHA-256检验。新包是故障取证和低功耗阶段性预览版，**尚未通过后续一整夜FCM在线率和端到端消息投递测试**，不标记稳定Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Published alpha17 is immutable; release a new version instead of overwriting" >&2
+            exit 1
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.18-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.18-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.18（FCM DNS分阶段取证及低功耗修复预览版）" --notes-file /tmp/alpha18_notes.md --prerelease --latest=false
+          fi
