@@ -249,6 +249,15 @@ soft_reconnect_if_stalled() {
     *) return 1 ;;
   esac
 
+  # alpha18: once a DNS outage has persisted for 15 minutes, an MCS
+  # reconnect broadcast cannot fix name resolution. Preserve fast initial
+  # attempts, then reduce repeated ineffective broadcasts from ~5 to 30m.
+  # Actual DNS recovery is still checked on every existing guard wake.
+  if [ "${3:-}" = dns-failed ] && [ "$soft_outage" -ge 900 ] 2>/dev/null; then
+    soft_gap=1800
+    soft_reason="$soft_reason-dns-unavailable"
+  fi
+
   soft_last=$(cat "$SOFT_RECONNECT_FILE" 2>/dev/null)
   case "$soft_last" in ''|*[!0-9]*) soft_last=0;; esac
   [ $((soft_now-soft_last)) -ge "$soft_gap" ] 2>/dev/null || return 1
@@ -541,6 +550,15 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
         ensure_fcm_uid_bypass
         # Re-evaluate DNS via the ordinary next poll, not a busy retry loop.
       elif [ "$outage" -ge 900 ] 2>/dev/null; then
+        # alpha18: independent, read-only flight recorder BEFORE the fallback
+        # makes a decision. It persists the exact failing gate (route, UID,
+        # Box capture, root upstream DNS, etc.) once per 15 minutes. Unlike
+        # alpha17 it records evidence even when a precondition fails before
+        # the recovery state directory is created. No extra workers/alarms.
+        if [ -r "$MODDIR/bin/fcm_dns_differential_diag.sh" ]; then
+          "$BB" timeout 40 /system/bin/sh "$MODDIR/bin/fcm_dns_differential_diag.sh" \
+            "$down_since" >/dev/null 2>&1 || true
+        fi
         # alpha17: alpha16's exact stale-source log is often absent in a
         # background failure, leaving hours of repeated UNKNOWN_HOST.
         # Independent gates inside this helper demand: CURRENT GMS resolver
@@ -562,7 +580,7 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
     else
       rate_limited_dns_log "$now" "Android resolver cannot resolve mtalk.google.com; no GMS restart"
     fi
-    soft_reconnect_if_stalled "$now" "$outage" || true
+    soft_reconnect_if_stalled "$now" "$outage" dns-failed || true
     exit 0
   fi
 
