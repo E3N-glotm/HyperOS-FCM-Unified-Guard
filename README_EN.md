@@ -8,6 +8,20 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.18 (preview): Bounded DNS failure flight recorder and low-power reconnect behavior
+
+[Alpha18 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.18).
+
+**Observed:** On Nov 9, alpha17 still left FCM disconnected from 04:28:27 to 07:06:15, roughly **2h38m**, while Android's DNS resolver repeatedly failed to resolve `mtalk.google.com`. PowerKeeper ART hooks, dynamic GMS UID (10139), scoped TCP 5228–5230 bypass and base workers tested healthy. Alpha17's conditional Box recovery did not produce any recovery state, but the failed prerequisite remains unidentified. Box network monitoring reported temporary loss of a default IPv4 route at other times; there is no exact timestamp correlation to establish the entire overnight root cause.
+
+**Alpha18** introduces read-only, staged DNS failure evidence **only after a real outage of at least 15 minutes with current GMS UID DNS still unresolved**. At most once every 15 minutes, it records Box availability and PID, process age, GMS UID, UDP/53 capture rule, IPv4 default egress, GMS libc DNS outcome, root's explicit upstream DNS result, and cooldown gates. The most recent result is written to `/data/adb/fcm_unified_guard/dns_differential/latest.tsv` and a bounded 96-line history to `history.tsv`. Distinct failure gates include `no_ipv4_route`, `upstream_or_transport_unavailable`, and `root_gms_dns_differential_present`. If both upstream and local network routing fail, this diagnostics layer does not restart GMS or Box.
+
+During prolonged unresolvable DNS (beyond 15 minutes), repeated native GCM soft reconnect broadcasts are reduced from approximately every five minutes to at most every 30 minutes, while early recovery attempts and the existing DNS recovery logic are retained. No new resident process, wakeup, timer, DNS server, firewall rule, mobile-data toggle, proxy subscription change or OEM Hook is introduced. Original alpha17 Box recovery remains unchanged.
+
+CI and on-device ZIP checks passed, including SHA-256 verification and byte-for-byte comparison of all unchanged native components against alpha17. The two scripts were safely hot-patched to the currently running alpha17 installation; FCM remained connected and sing-box retained the same PID. **Overnight message delivery and stability are still unverified**; this preview is not declared a permanent DNS outage fix.
+
+SHA-256: `32afef60de85ce76f2a31e26f4a5aac1a9c2589b1837666ede059abe2736cf33`.
+
 ## v0.4.0-alpha.17 (preview): Differential DNS verification and tightly gated nighttime recovery
 
 [Alpha17 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.17).
