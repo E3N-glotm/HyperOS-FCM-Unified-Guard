@@ -8,6 +8,20 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.18（预览版）：持续 UNKNOWN_HOST 的逐阶段取证与低功耗保护
+
+**[alpha18 Release 与完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.18)**。
+
+**现场事实：**2026-11-09 凌晨已安装 alpha17 的手机从 04:28:27 到 07:06:15 持续约 **2小时38分钟** 无法连接 FCM；系统 DNS 在 07:04:17 才恢复。PowerKeeper ART Hook、GMS UID=10139、GMS TCP 5228–5230 放行与基础守护均检查正常，但 alpha17 的第二级 Box 恢复没有留下状态记录。后者只说明**没有执行受控恢复**，无法证明它到底在“Box进程、DNS捕获规则、默认路由、GMS UID DNS、Root上游、6小时限频”哪一项退出；也不能直接证明唯一根因是 Box。已有 Box 网络监控记录显示默认 IPv4 出口曾反复暂时缺失，但旧日志缺少与凌晨故障对应的精确时间戳。
+
+**本版新增：**只在 GMS 当前 DNS 解析仍失败、真实 FCM 断联超过15分钟时，每15分钟最多执行一次**只读故障取证**，按顺序记录 Box 是否被停用、当前 sing-box PID/进程寿命、动态 GMS UID、UDP/53 捕获规则、默认 IPv4 接口、GMS UID Android libc DNS 解析、Root 对显式上游 DNS 的查询以及恢复限频状态。每次记录包含明确的失败门控标记：`no_ipv4_route`、`gms_query_not_conclusive`、`upstream_or_transport_unavailable`、`box_dns_capture_missing`、`root_gms_dns_differential_present` 等；如果上游和路由同样不可用，**不会**把故障直接误判为代理异常并重启服务。
+
+日志位于 `/data/adb/fcm_unified_guard/dns_differential/latest.tsv`（最近一次）和 `history.tsv`（最近96条），不会建立新常驻服务、定时任务或唤醒，FCM 正常连接时不执行额外探测。修复第二项功耗问题：对于已持续15分钟的 DNS 解析失败，将重复、无法解决 DNS 的 `GCM_RECONNECT` 广播从约5分钟一次降为最多30分钟一次；前15分钟的快速恢复、DNS恢复监测及原有限频恢复仍不变。
+
+alpha17 的 Box 恢复逻辑、PowerKeeper Java/原生 Zygisk、内核 alarmtimer、用户 DNS/代理/AdGuard Home 设置均不改变。CI 全套测试通过，正式 ZIP 在手机上通过 SHA-256、解压与对 alpha17 的核心文件逐项一致性检查。**实机已热更新两份 Shell 脚本、FCM仍在线、sing-box 没有重启；本版尚未通过下一次完整凌晨端到端推送稳定性验收，不得把“可观测性修复”表述为“长断连已经彻底修好”。**
+
+SHA-256：`32afef60de85ce76f2a31e26f4a5aac1a9c2589b1837666ede059abe2736cf33`。
+
 ## v0.4.0-alpha.17（预览版）：夜间 DNS 差分诊断与受限恢复
 
 **[alpha17 完整 Magisk ZIP 与发行说明](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.17)**。
