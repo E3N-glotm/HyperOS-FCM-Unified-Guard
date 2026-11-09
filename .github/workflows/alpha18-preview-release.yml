@@ -1,9 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha18
 # Create alpha18 preview once; do not rewrite a published release.
+# The already-published preview is immutable. New fixes require a new tag.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha18-preview-release.yml'
   workflow_dispatch:
 
 permissions:
