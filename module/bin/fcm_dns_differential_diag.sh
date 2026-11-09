@@ -35,7 +35,7 @@ cooldown=unknown
 
 # Record a final verdict on all exits with a bounded, fixed-schema text row.
 record() {
-  row="$(date '+%F %T %z')\toutage_sec=$AGE\tgate=$gate\tdefault_iface=$iface\tgms_libc=$gms\tupstream_dns=$upstream\tbox=$box\tbox_age=$box_age\tdns_capture=$box_dns\tlimit=$cooldown"
+  row=$(printf '%s\toutage_sec=%s\tgate=%s\tdefault_iface=%s\tgms_libc=%s\tupstream_dns=%s\tbox=%s\tbox_age=%s\tdns_capture=%s\tlimit=%s' "$(date '+%F %T %z')" "$AGE" "$gate" "$iface" "$gms" "$upstream" "$box" "$box_age" "$box_dns" "$cooldown")
   printf '%s\n' "$row" > "$STATE.tmp.$$"
   mv -f "$STATE.tmp.$$" "$STATE"
   printf '%s\n' "$row" >> "$HISTORY"
