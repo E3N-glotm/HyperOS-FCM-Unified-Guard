@@ -1,0 +1,141 @@
+name: Build and publish HyperOS FCM Unified Guard alpha19
+# One-time build; do not republish tag or replace already-verified artifacts.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha19-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha19-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha19:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha19 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          # Both paths must remain fail-closed; the legacy test now permits read-only firewall inspection but no rules mutation.
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 tests/test_fcm_dns_forensics_alpha18.py
+          python3 tests/test_fcm_box_pid_no_newline_alpha19.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha19
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha18 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.18-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.18
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha19 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.18-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.19-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          helper=pathlib.Path('module/bin/fcm_dns_box_repair.sh').read_bytes()
+          diag=pathlib.Path('module/bin/fcm_dns_differential_diag.sh').read_bytes()
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_dns_box_repair.sh':
+                      data=helper
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.18',b'version=0.4.0-alpha.19').replace(b'versionCode=40018',b'versionCode=40019')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA19_BOX_PID_EOF_BUGFIX.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha19: Box4Magisk box.pid has no final LF. POSIX read returns nonzero on EOF despite reading a PID; old recovery silently exited. Use cat command substitution with strict decimal PID validation. Isolated on-device mock verified one recovery and repeated outage suppression; no actual Box restart. Underlying DNS cause and overnight performance require field validation.')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.19' in z.read('module.prop')
+              assert b'versionCode=40019' in z.read('module.prop')
+              assert z.read('bin/fcm_dns_box_repair.sh')==helper
+              assert b'proxy_pid=$(cat "$BOXPID" 2>/dev/null)' in helper
+              assert b'read -r proxy_pid < "$BOXPID" 2>/dev/null || exit 0' not in helper
+              assert z.read('bin/fcm_guard.sh')==old.read('bin/fcm_guard.sh')
+              assert z.read('bin/fcm_dns_differential_diag.sh')==old.read('bin/fcm_dns_differential_diag.sh')
+              assert b'fallback "$down_since"' in z.read('bin/fcm_guard.sh')
+              assert b'PK_DNS_DENY' in z.read('bin/health_status.sh')
+              for item in ('powerkeeper-runtime.dex','zygisk/arm64-v8a.so','bin/fcmu_alarm_wait','bin/maintenance_worker.sh','bin/health_status.sh','customize.sh'):
+                  assert z.read(item)==old.read(item), 'protected component changed: '+item
+              for item in old.namelist():
+                  if item not in ('bin/fcm_dns_box_repair.sh','module.prop'):
+                      assert z.read(item)==old.read(item), 'unexpected file changed: '+item
+              assert set(z.namelist())-set(old.namelist()) == {'ALPHA19_BOX_PID_EOF_BUGFIX.txt'}
+              print('verified alpha18 -> alpha19: all unchanged files byte-identical;',len(z.namelist()),'entries;',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.19-integrated.zip.sha256
+
+      - name: Publish alpha19 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.19
+          cat > /tmp/alpha19_notes.md <<'EOF'
+          **alpha19 · 修复Box4Magisk无换行PID导致的FCM DNS恢复分支静默退出（预览版）**
+
+          2026-11-10凌晨03:08:04 FCM断连与持续UNKNOWN_HOST。alpha18在03:23:09的只读取证显示GMS UID Android DNS失败、Root显式DNS成功、rmnet_data4有IPv4路由、Box活跃且DNS捕获规则正常、6小时恢复限频未阻止，因此二级恢复应当继续检查。实际却没有生成任何Box恢复状态记录。
+
+          **根因已在手机上复现**：Box4Magisk的box.pid只含十进制PID，不带行尾换行。原脚本 read -r proxy_pid 配合读取失败即退出的判断，在读取到EOF时仍返回非零，即使变量已有正确PID，也使恢复流程提前退出。alpha19改用cat命令替换读取PID，并保留严格十进制验证、进程身份、15分钟持续故障门槛、Root/GMS DNS差分、UDP53捕获、出口路由、同次故障最多一次/全局6小时限频等保护。
+
+          实机隔离对比：旧版因无换行PID立即退出，新版可通过全部前置检查；模拟GMS DNS失败时仅执行一次**假Box service**，同次故障再次尝试不再执行。测试过程中真正的FCM/Box均保持在线，未触发实际代理重启。CI运行全部既有回归与新增POSIX read/EOF测试，并对alpha18完整ZIP实施逐文件字节一致性校验，除fcm_dns_box_repair.sh、module.prop和发行说明外无改动。
+
+          真正的受控Box恢复在未来合格故障中可能短暂中断其他应用的代理连接；该版本仅修复原恢复分支从未执行的问题，**不能证明夜间DNS异常唯一来自Box，也尚未完成下一个夜间推送稳定性验收**。保留预览版，不设稳定Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Published alpha19 is immutable; release a new version instead of overwriting" >&2
+            exit 1
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.19-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.19-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.19（Box无换行PID导致DNS恢复静默退出修复预览版）" --notes-file /tmp/alpha19_notes.md --prerelease --latest=false
+          fi
