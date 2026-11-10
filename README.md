@@ -8,6 +8,23 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.20（预览版）：未核验不再误报黄色
+
+**[alpha20 完整 Magisk ZIP 与说明](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.20)**。
+
+针对用户反馈“未核验 / 待适配 / 未触发过”也亮黄色的问题，明确区分**实际发现异常**与**缺少观测证据**。此前健康状态中的 PowerKeeper native 映射但未完成 ART 调用验证、尚未观测到 DNS 方法命中、FCM 缓存过期、kernel alarm 等待首轮唤醒、框架 READY 待重启、能力列表未生成，都会错误触发 `YELLOW`。汇总逻辑把任何一个 `YELLOW` 提升为 Magisk 模块总黄灯；此外启动/自动适配阶段的 `backend_publish_status` 会把模块标题独立写成黄色，形成“功能都正常但常年黄灯”。
+
+**本版显示约定：**
+
+- **绿色**：已核验的运行项目正常。仍有未核验项目时，总状态标注“另 N 项待核验”，但不变黄色。
+- **灰色 / 白灯**：无法取得证据、没有发生过对应调用、对应接口不提供诊断、初次开机检测中、等待正常重启生效。这不是已确定故障。
+- **黄色**：确定的功能异常，例如明确检测到 GMS OEM 限制仍为 true、成功读取免限制列表却不包含 GMS、确认 kernel alarm 已失败且回退普通 sleep、PowerKeeper 被隔离、明确缺少 deviceidle 白名单、原生 hook 返回显式失败、框架单项报告 `failed/error`。
+- **红色**：实际 GcmService 断连、守护进程确认缺失或框架明确报告 `ERROR/QUARANTINED` 等严重异常。
+
+`health_status.sh` 和启动状态写入逻辑 `static_common.sh` 均已修改；兼容静态框架路径的健康脚本也同步修复。CI 对这两类状态机进行了实执行 shell 组合回归及源码校验，并以发布的 alpha19 完整 ZIP 为基线逐文件校验：只允许健康状态、启动状态、版本及新增说明发生差异。原 FCM/Box DNS 恢复、PowerKeeper Zygisk/ART、内核计时器、后台服务、GMS策略与其它用户的代理设置均不改变。
+
+**注意**：灰色不等于功能成功，绿色也不证明消息端到端投递。alpha20 不因用户未安装 Box4Magisk 而额外报错；其 Box DNS 修复仍是可选逻辑。本版保留为 alpha 预览版，暂不设稳定 Latest。
+
 ## v0.4.0-alpha.19（预览版）：修复二级 DNS 恢复始终无法触发的 PID 读取 Bug
 
 **[alpha19 完整 Magisk ZIP 与发行说明](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.19)**。
