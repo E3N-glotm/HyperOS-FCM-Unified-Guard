@@ -32,7 +32,12 @@ case "$mode" in probe|repair|fallback) :;; *) exit 2;; esac
 [ -f "$BOXPID" ] && [ -r "$LOGFILE" ] && [ -x "$SERVICE" ] || exit 0
 [ ! -e /data/adb/modules/box_for_root/disable ] || exit 0
 [ ! -e "$BOXDIR/manual" ] || exit 0
-read -r proxy_pid < "$BOXPID" 2>/dev/null || exit 0
+# Box4Magisk writes box.pid as decimal bytes WITHOUT a final newline.
+# POSIX read sets the variable but returns nonzero at EOF in that case, so
+# 'read ... || exit' incorrectly disabled all alpha16/alpha17 recovery paths.
+# Command substitution accepts the existing no-LF format; the numeric-only
+# contract below still rejects empty, malformed, injected, or stale PIDs.
+proxy_pid=$(cat "$BOXPID" 2>/dev/null) || exit 0
 case "$proxy_pid" in ''|*[!0-9]*) exit 0;; esac
 [ -r "/proc/$proxy_pid/comm" ] || exit 0
 read -r proxy_name < "/proc/$proxy_pid/comm" 2>/dev/null || exit 0
