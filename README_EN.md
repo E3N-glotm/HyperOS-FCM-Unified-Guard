@@ -8,6 +8,18 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.20 (preview): Unknown or unverified is not a warning
+
+[Alpha20 full Magisk ZIP and release notes](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.20).
+
+Fixes a recurring false-positive yellow state across multiple HyperOS devices. Previous health scripts elevated *unverified* PowerKeeper ART method execution, missing DNS hook hits, stale FCM observations, pending framework reboot, initial kernel alarm wait and absent capability reports to `YELLOW`. The aggregate then marked the whole Magisk module as partially broken. A separate startup/backend status writer also marked all transitional phases yellow, overriding otherwise healthy status.
+
+**Evidence-based semantics:** green means the checks that were actually verified are healthy (with the number of outstanding unverified items disclosed); gray/white means observation unavailable, not yet triggered, not yet verified, or pending next normal boot; yellow now requires an explicit observed functional defect (e.g. OEM GMS limiter still enabled, confirmed non-whitelisting, confirmed kernel wake failure, native runtime quarantined, explicit native hook failure or a framework feature reporting failed/error); red marks a confirmed severe outage or backend ERROR/QUARANTINED.
+
+Both the running health script and boot-phase Magisk module-status publisher have been corrected, including the legacy static-overlay variant. CI executed the status precedence scenarios and all older regressions, building the full distribution from the official alpha19 ZIP while requiring every unrelated file to remain byte-identical. No new workers or network probes were added. FCM/Box recovery, Zygisk/PowerKeeper code, wake timers, and users' network configurations are unchanged. Box4Magisk is optional and its absence is not itself a warning.
+
+Gray does **not** certify success; green does not certify delivery of every end-to-end push. Alpha20 remains a preview rather than stable Latest.
+
 ## v0.4.0-alpha.19 (preview): Fix silent Box PID EOF abort in the FCM DNS recovery path
 
 [Alpha19 full Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.19).
