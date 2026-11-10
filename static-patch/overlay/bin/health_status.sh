@@ -78,15 +78,19 @@ case "$greeze" in
  *) emit GRAY GMS_LIMIT "OEM limiter interface absent/unavailable; other functions remain independent";;
 esac
 # Greeze dumpsys and SettingsProvider are independent interfaces.
+# Only a parseable package list is valid negative evidence. Missing, denied,
+# error/help or unexpected OEM output does not establish a functional defect.
 whitelist=$(probe5 settings --user 0 get system MILLET_NO_RESTRICT_APP </dev/null 2>/dev/null)
 case "$whitelist" in
-  ''|null|*'Failed transaction'*|*'Failure calling service settings'*|*'Exception'*)
-    emit GRAY MILLET "no-restrict setting absent/unavailable; Greeze diagnostics independent";;
+  ''|null|*'Failed transaction'*|*'Failure calling service settings'*|*'Exception'*|*'Permission denial'*|*'Error'*|*'error'*)
+    emit GRAY MILLET "no-restrict setting unavailable or malformed; GMS absence unproven";;
   *)
     if printf '%s\n' "$whitelist" | tr ',' '\n' | grep -Eq '^[[:space:]]*com[.]google[.]android[.]gms[[:space:]]*$'; then
       emit GREEN MILLET "GMS is in the no-restrict setting"
+    elif printf '%s\n' "$whitelist" | tr ',' '\n' | grep -Eq '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*){2,}[[:space:]]*$'; then
+      emit YELLOW MILLET "GMS absent from an actual readable package list"
     else
-      emit YELLOW MILLET "GMS no-restrict entry not present"
+      emit GRAY MILLET "unrecognized no-restrict setting response; no failure proven"
     fi;;
 esac
 # The static backend currently patches services.jar + miui-services.jar only.
@@ -134,10 +138,10 @@ fi
 idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
 if printf '%s\n' "$idle" | grep -Eq '^(system|user),com[.]google[.]android[.]gms,'; then
   emit GREEN DEVICEIDLE "native GMS exemption present"
-elif [ -n "$idle" ] && ! printf '%s\n' "$idle" | grep -Eqi '(Failure|Exception|Error|Unknown|not found)'; then
-  emit YELLOW DEVICEIDLE "native GMS exemption absent from readable whitelist"
+elif printf '%s\n' "$idle" | grep -Eq '^(system|user),[A-Za-z_][A-Za-z0-9_.]*,[0-9]+$'; then
+  emit YELLOW DEVICEIDLE "native GMS exemption absent from parsed readable whitelist"
 else
-  emit GRAY DEVICEIDLE "native GMS exemption status unavailable; no failure confirmed"
+  emit GRAY DEVICEIDLE "native GMS exemption status unavailable or malformed; no failure confirmed"
 fi
 backend_read_state
 mounted=0 capfile=
