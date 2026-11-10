@@ -9,10 +9,17 @@ backend_read_state
 mkdir -p "$RUNDIR"
 OUT=$RUNDIR/.health.$$
 level=0
+verified_count=0
+unknown_count=0
 emit() {
   case "$1" in GREEN) dot='🟢';; YELLOW) dot='🟡';; RED) dot='🔴';; *) dot='⚪';; esac
   printf '%s %s\t%s\t%s\n' "$dot" "$1" "$2" "$3" >> "$OUT"
-  case "$1" in RED) level=2;; YELLOW) [ "$level" -ge 1 ] || level=1;; esac
+  case "$1" in
+    RED) level=2;;
+    YELLOW) [ "$level" -ge 1 ] || level=1;;
+    GREEN) verified_count=$((verified_count+1));;
+    GRAY) unknown_count=$((unknown_count+1));;
+  esac
 }
 : > "$OUT"
 core_ok=1
@@ -58,7 +65,7 @@ fi
 case "$observed" in
  connected) emit GREEN FCM "GcmService reports connected; real message delivery remains unverified";;
  disconnected) emit RED FCM "connection disconnected; may be network/GMS; recovery core remains running";;
- *) emit YELLOW FCM "connection diagnostics unavailable or stale";;
+ *) emit GRAY FCM "connection diagnostics unavailable or stale; no disconnect proven";;
 esac
 probe5() {
   if [ -x /data/adb/magisk/busybox ]; then /data/adb/magisk/busybox timeout 5 "$@";
@@ -114,9 +121,9 @@ if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
       done < "$MODDIR/backend/powerkeeper-packages.list"
     fi
     if [ "$pk_mapped" = 1 ]; then
-      emit YELLOW POWERKEEPER "native Zygisk library mapped; ART/OEM method coverage and delivery unverified; $pk_probe_label"
+      emit GRAY POWERKEEPER "native Zygisk mapped; OEM hook coverage not yet verified; $pk_probe_label"
     else
-      emit YELLOW POWERKEEPER "runtime bundled but OEM process injection not verified; check Zygisk / architecture; $pk_probe_label"
+      emit GRAY POWERKEEPER "runtime bundled; OEM process injection not yet verified; $pk_probe_label"
     fi
   fi
 elif [ -r "$MODDIR/backend/powerkeeper-capabilities.tsv" ]; then
@@ -127,20 +134,25 @@ fi
 idle=$(probe5 cmd deviceidle whitelist </dev/null 2>/dev/null)
 if printf '%s\n' "$idle" | grep -Eq '^(system|user),com[.]google[.]android[.]gms,'; then
   emit GREEN DEVICEIDLE "native GMS exemption present"
-else emit YELLOW DEVICEIDLE "native GMS exemption missing/unavailable"; fi
+elif [ -n "$idle" ] && ! printf '%s\n' "$idle" | grep -Eqi '(Failure|Exception|Error|Unknown|not found)'; then
+  emit YELLOW DEVICEIDLE "native GMS exemption absent from readable whitelist"
+else
+  emit GRAY DEVICEIDLE "native GMS exemption status unavailable; no failure confirmed"
+fi
 backend_read_state
 mounted=0 capfile=
 if cache_load; then
   capfile=$CACHE_DIR/capabilities.tsv
   cache_payload_ok && cache_security_ok && cache_mounted && mounted=1
 fi
+backend_unverified=0
 case "$phase:$mounted" in
- ACTIVE:0|MOUNTED:0) phase=ERROR; detail='framework payload not verified in this boot; inspect mount/cache diagnostics';;
+ ACTIVE:0|MOUNTED:0) backend_unverified=1; detail='framework payload not verified in this boot; no mount failure proven';;
 esac
 case "$phase" in
- ACTIVE) emit GREEN BACKEND "$detail";;
+ ACTIVE) if [ "$backend_unverified" = 1 ]; then emit GRAY BACKEND "$detail"; else emit GREEN BACKEND "$detail"; fi;;
  ERROR|QUARANTINED) emit RED BACKEND "$detail";;
- *) emit YELLOW BACKEND "$detail";;
+ *) emit GRAY BACKEND "$detail";;
 esac
 [ -n "$capfile" ] || capfile=$MODDIR/backend/last-capabilities.tsv
 ready=0 total=0
@@ -152,20 +164,31 @@ if [ -s "$capfile" ]; then
     if [ "$state" = ready ] && [ "$mounted" = 1 ]; then
       ready=$((ready+1)); emit GREEN "$feature" "adapted backend is mounted"
     elif [ "$state" = ready ] && [ "$phase" = READY ]; then
-      emit YELLOW "$feature" "generated; next normal reboot required"
+      emit GRAY "$feature" "generated; next normal reboot required (not a failure)"
     elif [ "$state" = ready ]; then
-      emit YELLOW "$feature" "cached; current-boot framework validation pending"
-    else emit YELLOW "$feature" "$reason"; fi
+      emit GRAY "$feature" "cached; current-boot validation pending (not a failure)"
+    else
+      case "$state" in
+        failed|failure|error) emit YELLOW "$feature" "confirmed feature failure: $reason";;
+        *) emit GRAY "$feature" "$reason (not verified or unsupported)";;
+      esac
+    fi
   done < "$capfile"
   framework_label="$ready/$total"
 else
-  emit YELLOW FEATURES "feature report missing; check backend/state and backend/build.log; base core independent"
+  emit GRAY FEATURES "feature report unavailable; no feature failure proven"
 fi
 case "$level" in
- 0) lamp='🟢'; label='运行检查正常';;
- 1) lamp='🟡'; label='部分功能/适配中';;
- *) lamp='🔴'; label='检测到问题';;
+ 0)
+    if [ "$verified_count" -gt 0 ]; then
+      lamp='🟢'; label='已核验项目正常'
+    else
+      lamp='⚪'; label='等待有效检测'
+    fi;;
+ 1) lamp='🟡'; label='已确认部分功能异常';;
+ *) lamp='🔴'; label='检测到严重异常';;
 esac
+[ "$unknown_count" -eq 0 ] || label="$label（另${unknown_count}项待核验）"
 phase_label=$(backend_phase_label "$phase")
 case "$observed" in connected) fcm_label='在线';; disconnected) fcm_label='断开';; *) fcm_label='未知';; esac
 summary="$lamp $label | FCM$fcm_label | 框架$framework_label | $phase_label"
