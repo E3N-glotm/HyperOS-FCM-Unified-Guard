@@ -1,9 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha20
 # One-time immutable preview; unverified is not a warning.
+# Official alpha20 published and verified. Later work requires a new tag.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha20-preview-release.yml'
   workflow_dispatch:
 
 permissions:
