@@ -8,6 +8,16 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.21 (cross-ROM warning evidence refinement)
+
+[Alpha21 release and full Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.21).
+
+Extends alpha20's confirmed-defect-only warning policy to OEM whitelist results that vary among HyperOS versions. A nonempty response from `MILLET_NO_RESTRICT_APP` or `cmd deviceidle whitelist` is **not** proof that GMS is excluded: help text, permission errors, empty/null and unknown formats are neutral gray. Yellow is permitted only if a real Android package-name list or complete `system/user,package,UID` entries can be parsed and GMS is verifiably absent; a confirmed GMS entry remains green.
+
+The current health script and legacy static-overlay health script were subjected to 15 actual POSIX-shell response scenarios, in addition to all existing alpha20 tests. The official alpha21 ZIP is built from the signed alpha20 baseline; only the health script, version metadata and release note differ, and every unrelated file is byte-identical. No change to FCM connectivity, Box recovery, Zygisk, PowerKeeper, wake alarms or device networking. Box4Magisk remains optional and its absence does not itself trigger yellow.
+
+**Use alpha21 rather than interim alpha20 for cross-ROM distribution.** Still a preview; no claim of end-to-end push reliability or device-wide runtime verification.
+
 ## v0.4.0-alpha.20 (preview): Unknown or unverified is not a warning
 
 [Alpha20 full Magisk ZIP and release notes](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.20).
