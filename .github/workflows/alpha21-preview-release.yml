@@ -1,0 +1,150 @@
+name: Build and publish HyperOS FCM Unified Guard alpha21
+# Keep alpha20 immutable; tighten cross-device unknown-result gates in alpha21.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha21-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha21-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha21 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          # Both paths must remain fail-closed; the legacy test now permits read-only firewall inspection but no rules mutation.
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 tests/test_fcm_dns_forensics_alpha18.py
+          python3 tests/test_fcm_box_pid_no_newline_alpha19.py
+          python3 tests/test_health_evidence_only_alpha20.py
+          python3 tests/test_health_parsed_whitelist_alpha21.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha21
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha20 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.20-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.20
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha21 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.20-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.21-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          helper=pathlib.Path('module/bin/fcm_dns_box_repair.sh').read_bytes()
+          diag=pathlib.Path('module/bin/fcm_dns_differential_diag.sh').read_bytes()
+          health=pathlib.Path('module/bin/health_status.sh').read_bytes()
+          assert b"emit GRAY POWERKEEPER" in health
+          assert b"unrecognized no-restrict setting response; no failure proven" in health
+          assert b"native GMS exemption absent from parsed readable whitelist" in health
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              oldhealth=src.read('bin/health_status.sh')
+              assert b'no-restrict entry not present' not in oldhealth
+              assert b'unavailable or malformed' not in oldhealth
+              assert b'emit GRAY POWERKEEPER' in oldhealth
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/health_status.sh':
+                      data=health
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.20',b'version=0.4.0-alpha.21').replace(b'versionCode=40020',b'versionCode=40021')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA21_CROSS_ROM_WHITELIST_EVIDENCE.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha21: Do not treat a nonempty, unparsed OEM whitelist response as evidence GMS is missing. Only real parsed package-list entries and deviceidle system/user UID records may cause yellow for missing exemption. Permission denied, help text, command errors and null remain gray. All alpha20 PowerKeeper, FCM/Box, Zygisk, alarmtimer and framework behaviors remain unchanged.')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.21' in z.read('module.prop')
+              assert b'versionCode=40021' in z.read('module.prop')
+              assert z.read('bin/health_status.sh')==health
+              assert z.read('bin/static_common.sh')==old.read('bin/static_common.sh')
+              assert z.read('bin/fcm_dns_box_repair.sh')==old.read('bin/fcm_dns_box_repair.sh')
+              assert z.read('bin/fcm_guard.sh')==old.read('bin/fcm_guard.sh')
+              assert z.read('bin/fcm_dns_differential_diag.sh')==old.read('bin/fcm_dns_differential_diag.sh')
+              assert b'PK_DNS_DENY' in z.read('bin/health_status.sh')
+              for item in ('powerkeeper-runtime.dex','zygisk/arm64-v8a.so','bin/fcmu_alarm_wait','bin/maintenance_worker.sh','customize.sh'):
+                  assert z.read(item)==old.read(item), 'protected component changed: '+item
+              for item in old.namelist():
+                  if item not in ('bin/health_status.sh','module.prop'):
+                      assert z.read(item)==old.read(item), 'unplanned file changed: '+item
+              assert set(z.namelist())-set(old.namelist()) == {'ALPHA21_CROSS_ROM_WHITELIST_EVIDENCE.txt'}
+              print('verified alpha20->alpha21: only whitelist evidence gates;',len(z.namelist()),'entries;',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.21-integrated.zip.sha256
+
+      - name: Publish alpha21 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.21
+          cat > /tmp/alpha21_notes.md <<'EOF'
+          **alpha21：跨机型白名单结果严格判定，不再因权限错误/帮助文本误报黄色（预览版）**
+
+          在alpha20已全面取消“尚未核验/待重启/诊断暂不可用”黄灯的基础上，再针对不同HyperOS系统版本收紧两个关键白名单检测：设置服务 MILLET_NO_RESTRICT_APP 和 deviceidle whitelist 的返回不一定是有效的应用名单，也可能是帮助、权限拒绝、错误、空值或不同厂商格式。旧版对部分非空未知文本仍可能误判为“GMS确实不在白名单”并亮黄灯。
+
+          **alpha21规则**：只有成功读取并解析到实际Android应用包列表或deviceidle system/user UID条目，而且名单中确认缺少GMS，才显示黄色；错误、未知格式、权限拒绝、空结果和不可验证统一灰色。确认GMS存在则绿色。其余alpha20绿色/灰色/黄色/红色判定和Magisk启动阶段白灯逻辑不变。
+
+          CI实执行两个版本的健康脚本白名单分支，在GMS明确存在、明确缺失、帮助输出、Permission denial、Exception、空值、null等15种条件下校验结果，并运行alpha20完整回归；用正式alpha20 ZIP为基线逐文件字节校验，除health_status.sh/版本/说明外不允许其他差异。
+
+          原FCM/Box DNS恢复、PowerKeeper Hook/Zygisk、内核闹钟、后台任务及其他网络策略全部不变；不要求用户安装Box4Magisk、不增加轮询或电量开销。未验证不代表运行成功，正式长期推送验收仍然单独进行。保留预览版，不标记稳定Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Published alpha21 is immutable; release a new version instead of overwriting" >&2
+            exit 1
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.21-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.21-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.21（跨机型白名单未知不误报黄灯预览版）" --notes-file /tmp/alpha21_notes.md --prerelease --latest=false
+          fi
