@@ -1,9 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha19
 # One-time build; do not republish tag or replace already-verified artifacts.
+# Published alpha19 is immutable; future fixes need a new version.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha19-preview-release.yml'
   workflow_dispatch:
 
 permissions:
