@@ -8,6 +8,18 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.19（预览版）：修复二级 DNS 恢复始终无法触发的 PID 读取 Bug
+
+**[alpha19 完整 Magisk ZIP 与发行说明](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.19)**。
+
+**问题根因已复现：**2026-11-10 凌晨 03:08 FCM 再次出现 UNKNOWN_HOST 长断连。03:23 的 alpha18 只读记录明确显示 `root_gms_dns_differential_present`：GMS UID libc DNS 查询失败、Root 上游 223.5.5.5 能解析、默认路由 rmnet_data4 存在、sing-box 进程活跃、Box DNS 捕获规则存在、恢复限频允许，但从来没有生成 `box_dns_repair` 状态目录。
+
+实机 shell 执行跟踪直接定位：Box4Magisk 的 `/data/adb/box/run/box.pid` 文件内容为十进制 PID **13508**，没有结尾换行符。此前恢复脚本使用 `read -r proxy_pid < "$BOXPID" || exit 0`，在到达 EOF 时，`read` 虽赋值但返回非零，导致提前退出。alpha19 改为 `proxy_pid=$(cat "$BOXPID" 2>/dev/null) || exit 0`，依旧要求十进制数字、对应运行中的 sing-box 实例及后续严格的 DNS/网络/冷却时间证明。
+
+**实测与行为边界：**隔离重现旧版读取 PID 后直接结束；修改版先通过全部现有前置门控，人工模拟 GMS DNS 失败时仅调用一次*模拟 Box service*，同次断连再次请求被抑制。过程中没有重新启动实际 GMS 或 sing-box。CI 全套回归和正式 ZIP 与 alpha18 逐文件字节对比通过：只有上述脚本、版本号和发行说明发生变化，PowerKeeper、Zygisk、GMS 心跳、kernel alarmtimer 与其余安全控制均保持原样。
+
+已在当前手机通过 Magisk 命令行安装新版本，并对运行中的恢复脚本应用字节一致的热补丁；FCM 在线、sing-box PID 未变，不要求立即重启。升级后的其它完整模块文件下次正常重启时生效。**真实二级恢复若在未来满足条件，会按原策略至多每次故障一次、全局至少相隔六小时地重启 Box，可能短暂影响其他应用代理连接**；目前还不能证明整个夜间故障的唯一根因来自 Box，也没有完成下一晚的长期推送验收。因此仍保留预览版，不设置稳定 Latest。
+
 ## v0.4.0-alpha.18（预览版）：持续 UNKNOWN_HOST 的逐阶段取证与低功耗保护
 
 **[alpha18 Release 与完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.18)**。
