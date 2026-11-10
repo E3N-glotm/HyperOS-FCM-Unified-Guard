@@ -8,6 +8,18 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.19 (preview): Fix silent Box PID EOF abort in the FCM DNS recovery path
+
+[Alpha19 full Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.19).
+
+The root cause of the **unreachable recovery code**, not necessarily of the underlying DNS outage, is now confirmed. During the November 10 incident, the alpha18 recorder showed `root_gms_dns_differential_present`: GMS UID libc DNS lookup failed, explicit Root upstream DNS resolved, mobile IPv4 routing worked, Box DNS capture was present, sing-box was running, and the recovery cooldown was ready. Despite this, no recovery state had ever been created.
+
+An isolated on-device shell trace established that the actual Box4Magisk `/data/adb/box/run/box.pid` contained `13508` **without a trailing newline**. The original `read -r proxy_pid < "$BOXPID" || exit 0` returned nonzero on EOF, even when it had already populated the variable; therefore the helper exited before checking recovery gates. Alpha19 switches to `proxy_pid=$(cat "$BOXPID" 2>/dev/null) || exit 0`, retaining strict decimal PID, live process identity, sustained-outage, DNS differential, Box DNS capture, IPv4 route, and one-per-outage/six-hour cooldown checks.
+
+An on-device isolated mock verified the original abort, successful corrected gating, exactly one fake Box service restart with a simulated current GMS DNS lookup error, and suppression on repeat calls. The actual sing-box and GMS processes were not restarted during the tests. CI passed the entire existing regression suite and checked that every unchanged ZIP entry matches the official alpha18 release byte-for-byte. No native Zygisk/PowerKeeper, wake alarm, guard polling, firewall, user proxy, or OEM settings are modified.
+
+The published preview ZIP has been staged using Magisk on the phone, and its corrected helper has been hot-applied to the running installation while FCM remained connected. A future **actual** recovery may briefly interrupt other proxied applications; it is still gated to one per outage with a six-hour global floor. **This fixes the recovery branch's early exit, not a proven unique root cause of the overnight DNS failure; overnight reliability and end-to-end message delivery require further observation.** Alpha19 is a preview and is not designated stable Latest.
+
 ## v0.4.0-alpha.18 (preview): Bounded DNS failure flight recorder and low-power reconnect behavior
 
 [Alpha18 release and complete Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.18).
