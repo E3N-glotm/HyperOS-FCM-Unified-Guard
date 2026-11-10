@@ -1,0 +1,160 @@
+name: Build and publish HyperOS FCM Unified Guard alpha20
+# One-time immutable preview; unverified is not a warning.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha20-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha20-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha20:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha20 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          # Both paths must remain fail-closed; the legacy test now permits read-only firewall inspection but no rules mutation.
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 tests/test_fcm_dns_forensics_alpha18.py
+          python3 tests/test_fcm_box_pid_no_newline_alpha19.py
+          python3 tests/test_health_evidence_only_alpha20.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha20
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha19 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.19-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.19
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha20 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.19-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.20-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          helper=pathlib.Path('module/bin/fcm_dns_box_repair.sh').read_bytes()
+          diag=pathlib.Path('module/bin/fcm_dns_differential_diag.sh').read_bytes()
+          health=pathlib.Path('module/bin/health_status.sh').read_bytes()
+          common=pathlib.Path('static-patch/overlay/bin/static_common.sh').read_bytes()
+          legacy_health=pathlib.Path('static-patch/overlay/bin/health_status.sh').read_bytes()
+          assert b"emit GRAY POWERKEEPER" in health
+          assert b"bstatus_lamp='\xe2\x9a\xaa'" in common or '⚪'.encode() in common
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              oldcommon=src.read('bin/static_common.sh')
+              orig=b'  case "$1" in ERROR|QUARANTINED) bstatus_lamp=' + b"'\xf0\x9f\x94\xb4';; *) bstatus_lamp='\xf0\x9f\x9f\xa1';; esac"
+              # Assert only the intended boot-lamp decision changed in the shared helper.
+              assert oldcommon.count(orig)==1, 'unexpected alpha19 common baseline'
+              assert b"*) bstatus_lamp='\xe2\x9a\xaa';;" in common, 'neutral boot phase missing'
+              assert b"bstatus_lamp='\xf0\x9f\x9f\xa1'" not in common, 'legacy yellow boot phase persists'
+              oldhealth=src.read('bin/health_status.sh')
+              assert b"label='\xe9\x83\xa8\xe5\x88\x86\xe5\x8a\x9f\xe8\x83\xbd/\xe9\x80\x82\xe9\x85\x8d\xe4\xb8\xad'" in oldhealth
+              assert b'emit GRAY POWERKEEPER' in health
+              for entry in src.infolist():
+                  if entry.is_dir():
+                      continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/health_status.sh':
+                      data=health
+                  elif entry.filename=='bin/static_common.sh':
+                      data=common
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.19',b'version=0.4.0-alpha.20').replace(b'versionCode=40019',b'versionCode=40020')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA20_EVIDENCE_ONLY_STATUS.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha20: no YELLOW for unverified PowerKeeper method execution, unconfirmed hook injection, stale FCM diagnostics, pending framework mount/reboot, missing feature report, or pending kernel-alarm observation. Neutral GRAY is not aggregated to a warning. Only explicitly verified failures raise YELLOW (and severe confirmed failures RED). Boot-phase temporary label is neutral. Runtime FCM/Box/PowerKeeper implementations unchanged.\n')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.20' in z.read('module.prop')
+              assert b'versionCode=40020' in z.read('module.prop')
+              assert z.read('bin/health_status.sh')==health
+              assert z.read('bin/static_common.sh')==common
+              assert b'emit GRAY POWERKEEPER' in health
+              assert b"label='\xe5\xb7\xb2\xe6\xa0\xb8\xe9\xaa\x8c\xe9\xa1\xb9\xe7\x9b\xae\xe6\xad\xa3\xe5\xb8\xb8'" in health
+              assert b"*) bstatus_lamp='\xe2\x9a\xaa';;" in common
+              assert z.read('bin/fcm_dns_box_repair.sh')==old.read('bin/fcm_dns_box_repair.sh')
+              assert z.read('bin/fcm_guard.sh')==old.read('bin/fcm_guard.sh')
+              assert z.read('bin/fcm_dns_differential_diag.sh')==old.read('bin/fcm_dns_differential_diag.sh')
+              for item in ('powerkeeper-runtime.dex','zygisk/arm64-v8a.so','bin/fcmu_alarm_wait','bin/maintenance_worker.sh','customize.sh','bin/service.sh'):
+                  if item in old.namelist():
+                      assert z.read(item)==old.read(item), 'protected component changed: '+item
+              for item in old.namelist():
+                  if item not in ('bin/health_status.sh','bin/static_common.sh','module.prop'):
+                      assert z.read(item)==old.read(item), 'unplanned file changed: '+item
+              assert set(z.namelist())-set(old.namelist()) == {'ALPHA20_EVIDENCE_ONLY_STATUS.txt'}
+              print('verified alpha19->alpha20: only health UI and boot status changed;',len(z.namelist()),'entries;',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.20-integrated.zip.sha256
+
+      - name: Publish alpha20 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.20
+          cat > /tmp/alpha20_notes.md <<'EOF'
+          **alpha20：修复“尚未核验即亮黄灯”的误报（预览版）**
+
+          已确认旧版状态逻辑把 PowerKeeper native Zygisk 已映射但ART方法调用尚无证据、FCM状态缓存暂时不可用、框架下一次重启才能生效、Kernel alarm等待第一次唤醒，以及部分功能报告未生成等均提升为YELLOW；任何一个YELLOW都会把模块标题与Magisk主界面整体标为“部分功能/适配中”。独立的后端启动相位写入器也会在CHECKING/READY/BUILDING/ACTIVE等过渡状态直接将Magisk图标覆盖成黄色，导致普通用户普遍误以为存在故障。
+
+          **新规则**：绿色=已核验项目正常；灰色=未知/尚未核验/不适配/待重启/监测暂不可用，不会导致总黄灯；黄色=已有明确证据的功能异常，如OEM GMS limiter仍开启、GMS不在已成功读取的免限制名单、Kernel wake确认降级、PowerKeeper被明确隔离、设备idle明确无GMS免限制、后台报告显式failed/error；红色=已确认核心worker缺失、FCM明确断开、后台明确ERROR/QUARANTINED。未核验与故障分开，若已核验项正常且其他项未知，主灯绿色并标明待核验项数量，避免夸大已核验范围。
+
+          所有改动仅限health_status.sh、static_common.sh的Magisk启动状态灯、版本及说明。**原FCM/Box二级DNS恢复、PowerKeeper Zygisk/ART、内核闹钟、GMS限制策略、监听线程、后台电池与网络配置均未更改。** CI执行旧版全部回归、真实POSIX shell聚合优先级6种情形测试，以及alpha19正式ZIP逐字节保护（其余文件必须完全一致）。
+
+          alpha20不新增任何root常驻线程或网络操作，不因缺少Box4Magisk而告警。**灰色不意味着功能已成功，绿色也不证明端到端消息全部送达。** 独立推送稳定性仍需长期实测，因此本版本是预览版，不调整稳定Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Published alpha20 is immutable; release a new version instead of overwriting" >&2
+            exit 1
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.20-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.20-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.20（健康状态仅已确认故障告警预览版）" --notes-file /tmp/alpha20_notes.md --prerelease --latest=false
+          fi
