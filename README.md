@@ -8,6 +8,18 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.21（最终跨机型补丁）：未核验、未知格式不亮黄灯
+
+**[alpha21 Release 与完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.21)**。
+
+本版本在 alpha20 的**绿色=已核验正常、灰色=未核验/未触发/待生效、黄色=有明确异常证据、红色=已确认严重故障**规则基础上，进一步修正不同机型 SettingsProvider 和 deviceidle 白名单输出差异，避免新的误报。
+
+具体而言，`MILLET_NO_RESTRICT_APP` 的读取结果只有能解析为 Android 包名列表、且确实缺少 `com.google.android.gms` 时才允许黄灯；返回帮助、权限拒绝、异常、空值、`null` 或其他未知文本均为灰色。对 `cmd deviceidle whitelist` 同样要求至少有一个完整的 `system/user,包名,UID` 条目，才能确认 GMS 缺失；无法读取或返回非标准信息一律灰色。GMS 确实在列表中时仍显示绿色。
+
+CI 实际执行现有两套健康脚本（当前版和兼容版）的 15 种白名单回应场景，并运行 alpha20 的其他所有测试；alpha21 从已发布的 alpha20 完整 ZIP 增量构建，**仅健康脚本、版本和发行说明变化，其余文件逐字节相同**。FCM/Box4Magisk、PowerKeeper、Zygisk、原生心跳、后台守护与系统网络配置均不改变。未安装 Box4Magisk 本身不是故障，不会因此亮黄灯。
+
+**新用户请以 alpha21 为准；alpha20 是已通过主要误报修复、但对白名单未知格式处理不够严格的中间预览版本。** 此包仍为预览版，不等同于已完成各设备实机验收；绿色也不代表端到端消息必然送达。
+
 ## v0.4.0-alpha.20（预览版）：未核验不再误报黄色
 
 **[alpha20 完整 Magisk ZIP 与说明](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.20)**。
