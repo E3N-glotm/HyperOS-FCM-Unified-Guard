@@ -121,7 +121,9 @@ backend_phase_label() {
 backend_publish_status() {
   # Publish the boot phase without dumpsys, hashing or starting another worker.
   # A completed bind mount is not yet an acknowledged Android boot or FCM check.
-  case "$1" in ERROR|QUARANTINED) bstatus_lamp='🔴';; *) bstatus_lamp='🟡';; esac
+  # A checking/building/reboot-pending phase is not evidence of malfunction.
+  # Only an explicit backend ERROR/QUARANTINED state raises an error lamp.
+  case "$1" in ERROR|QUARANTINED) bstatus_lamp='🔴';; *) bstatus_lamp='⚪';; esac
   bstatus_summary="$bstatus_lamp $(backend_phase_label "$1")"
   [ "$1" != ACTIVE ] || bstatus_summary="$bstatus_summary | 守护与FCM检查中"
   module_status_write "$bstatus_lamp" "$bstatus_summary"
