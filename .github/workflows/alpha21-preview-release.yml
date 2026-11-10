@@ -83,7 +83,7 @@ jobs:
           assert b"native GMS exemption absent from parsed readable whitelist" in health
           with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
               oldhealth=src.read('bin/health_status.sh')
-              assert b'no-restrict entry not present' not in oldhealth
+              assert b'no-restrict entry not present' in oldhealth, 'alpha20 baseline must contain old false-positive branch'
               assert b'unavailable or malformed' not in oldhealth
               assert b'emit GRAY POWERKEEPER' in oldhealth
               for entry in src.infolist():
