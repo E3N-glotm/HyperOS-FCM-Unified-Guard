@@ -10,6 +10,7 @@ DNSLOG_FILE=$RUNDIR/fcm_dns_fail_log.epoch
 DNSFAIL_FILE=$RUNDIR/fcm_dns_fail.epoch
 DNSOK_FILE=$RUNDIR/fcm_dns_recovered_since.epoch
 DNSFLUSH_FILE=$RUNDIR/fcm_dns_flush.epoch
+DNSFLUSH_SCOPE_FILE=$RUNDIR/fcm_dns_flush_scope.signature
 SOFT_RECONNECT_FILE=$RUNDIR/fcm_soft_reconnect.epoch
 BYPASS_UID_FILE=$RUNDIR/fcm_bypass.uid
 KEEPALIVE_FILE=$RUNDIR/fcm_keepalive.epoch
@@ -397,15 +398,76 @@ dns_netids() {
   '
 }
 
+# Android 17 ships DNS Resolver as a separate Binder-backed Mainline service.
+# The legacy 'ndc resolver flushnet' and 'cmd netd resolver flushnet'
+# commands are unavailable on this firmware. In AOSP Android 17 the stable
+# IDnsResolver AIDL declaration places flushNetworkCache(int netId) at
+# transaction 11 (after the read-only isAlive at transaction 1). Never invoke
+# an unknown transaction on a different SDK, and verify the live service and
+# real netIds before one bounded, per-outage cache flush.
+dnsresolver_binder_ready() {
+  [ "$(getprop ro.build.version.sdk)" = 37 ] || return 1
+  service list 2>/dev/null |
+    grep -Fq 'dnsresolver: [android.net.IDnsResolver]' || return 1
+  alive=$("$BB" timeout 5 service call dnsresolver 1 2>&1) || return 1
+  printf '%s\n' "$alive" |
+    grep -Eq '^Result: Parcel\([[:space:]]*00000000[[:space:]]+00000001([[:space:]]|$)'
+}
+
+dnsresolver_binder_flush_one() {
+  cache_netid=$1
+  case "$cache_netid" in ''|*[!0-9]*) return 1;; esac
+  # AOSP: status 00000000 means Binder completed without an exception.
+  # Treat all other replies (including transport success with an exception)
+  # as failure; do not claim a cache flush.
+  cache_reply=$("$BB" timeout 5 service call dnsresolver 11 i32 "$cache_netid" 2>&1) || return 1
+  printf '%s\n' "$cache_reply" |
+    grep -Eq "^Result: Parcel\\([[:space:]]*00000000[[:space:]]+'"
+}
+
 flush_android_dns() {
   flush_now=$1
   last_flush=$(cat "$DNSFLUSH_FILE" 2>/dev/null)
   case "$last_flush" in ''|*[!0-9]*) last_flush=0;; esac
   [ $((flush_now-last_flush)) -ge 300 ] 2>/dev/null || return 0
+
+  # Only real active netId caches from DNS Resolver are eligible. Never
+  # reset DNS servers, routes, app network bindings, Box, or the GMS process.
+  live_netids=$(dns_netids | "$BB" head -n 8)
+  [ -n "$live_netids" ] || {
+    log_msg "FCM guard: no active Android DNS resolver netId; flush skipped"
+    return 0
+  }
+  flush_scope=none
+  outage_stamp=$(cat "$DOWN_FILE" 2>/dev/null)
+  case "$outage_stamp" in
+    ''|*[!0-9]*) :;;
+    *) flush_scope=$(printf '%s:%s' "$outage_stamp" "$live_netids" | "$BB" tr '\n' ',');;
+  esac
+
+  # A verified Binder flush has no value repeating at 5-minute intervals for
+  # the same outage on the same networks: another failure is likely a live
+  # resolver transport / UID-routing defect, not merely a stale cache.
+  if [ "$flush_scope" != none ] &&
+     [ "$(cat "$DNSFLUSH_SCOPE_FILE" 2>/dev/null)" = "$flush_scope" ]; then
+    return 0
+  fi
+
   printf '%s\n' "$flush_now" > "$DNSFLUSH_FILE"
+  binder_ready=0
+  dnsresolver_binder_ready && binder_ready=1
 
   flushed=0
-  for netid in $(dns_netids); do
+  binder_flushed=0
+  for netid in $live_netids; do
+    if [ "$binder_ready" -eq 1 ] &&
+       dnsresolver_binder_flush_one "$netid"; then
+      flushed=$((flushed+1))
+      binder_flushed=$((binder_flushed+1))
+      continue
+    fi
+
+    # Legacy path retained for older platforms where those commands exist.
     if command -v ndc >/dev/null 2>&1; then
       ndc_out=$("$BB" timeout 5 ndc resolver flushnet "$netid" 2>&1)
       ndc_rc=$?
@@ -414,7 +476,7 @@ flush_android_dns() {
         [45][0-9][0-9]' '*) ndc_ok=0 ;;
         *) [ "$ndc_rc" -eq 0 ] 2>/dev/null && ndc_ok=1 || ndc_ok=0 ;;
       esac
-      if [ "$ndc_ok" -eq 1 ] 2>/dev/null; then
+      if [ "$ndc_ok" -eq 1 ]; then
         flushed=$((flushed+1))
         continue
       fi
@@ -425,14 +487,16 @@ flush_android_dns() {
       *'Command not recognized'*|*'Failure calling service'*|*'Failed transaction'*|*'Exception'*) cmd_ok=0 ;;
       *) [ "$cmd_rc" -eq 0 ] 2>/dev/null && cmd_ok=1 || cmd_ok=0 ;;
     esac
-    if [ "$cmd_ok" -eq 1 ] 2>/dev/null; then
-      flushed=$((flushed+1))
-    fi
+    [ "$cmd_ok" -eq 1 ] && flushed=$((flushed+1))
   done
-  if [ "$flushed" -gt 0 ] 2>/dev/null; then
-    log_msg "FCM guard: flushed Android DNS cache networks=$flushed"
+
+  if [ "$binder_flushed" -gt 0 ] && [ "$flush_scope" != none ]; then
+    printf '%s\n' "$flush_scope" > "$DNSFLUSH_SCOPE_FILE"
+  fi
+  if [ "$flushed" -gt 0 ]; then
+    log_msg "FCM guard: Android DNS resolver cache flush confirmed, networks=$flushed binder=$binder_flushed; no GMS/Box restart; pending DNS recheck"
   else
-    log_msg "FCM guard: DNS cache flush command unavailable or resolver netId absent; no cache flush claimed"
+    log_msg "FCM guard: DNS resolver cache flush unsupported/failed; no cache flush claimed"
   fi
 }
 
