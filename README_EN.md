@@ -8,6 +8,18 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.22 (preview): Android 17 native DNS cache recovery fix
+
+[Full alpha22 Magisk release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.22).
+
+On November 12, 2026, two major FCM outages (00:18–04:32 and 05:32–07:12 local time) coincided with Android native DnsResolver failures for GMS UID 10139 **and several unrelated application UIDs**, even though explicit root upstream DNS queries worked. Restricted Box restarts and GCM_RECONNECT did not immediately restore DNS. Therefore the evidence does **not** isolate the underlying cause to GMS, Box or PowerKeeper alone.
+
+The old DNS cache recovery attempts, using `ndc resolver flushnet` or `cmd netd resolver flushnet`, are unavailable on the tested Android 17 build, resulting in repeated ineffective recovery attempts. Alpha22 verifies SDK37, the official DNSResolver Binder service, a read-only isAlive reply and actual active NetId caches before invoking the AOSP Android 17 `IDnsResolver.flushNetworkCache(int netId)` API (Binder transaction 11). This operation succeeded in a real-phone test without disconnecting GMS.
+
+Each confirmed outage and identical network-cache set receives **at most one successful Binder cache refresh**; a changed network set or a new outage may trigger another. Unverified Android releases never receive a guessed Binder transaction. This is independent of Box4Magisk and does not change routing, DNS servers, firewall rules, PowerKeeper, Zygisk, heartbeats or user proxy settings. The alpha21 neutral-unknown health indicators remain unchanged.
+
+**Scope limitation:** This resolves a demonstrated broken cache-recovery API path, not yet a proven unique cause or cure for all overnight DNS outages. Subsequent overnight on-device data must verify whether real disconnects become shorter. Distributed as prerelease, not stable Latest.
+
 ## v0.4.0-alpha.21 (cross-ROM warning evidence refinement)
 
 [Alpha21 release and full Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.21).
