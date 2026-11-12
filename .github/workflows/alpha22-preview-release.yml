@@ -1,8 +1,6 @@
 name: Build and publish HyperOS FCM Unified Guard alpha22
+# Official alpha22 immutable after CI and phone checksum verification.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha22-preview-release.yml'
   workflow_dispatch:
 
 permissions:
