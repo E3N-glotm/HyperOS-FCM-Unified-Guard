@@ -1,0 +1,141 @@
+name: Build and publish HyperOS FCM Unified Guard alpha22
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha22-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha22-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha22:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha22 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          # Both paths must remain fail-closed; the legacy test now permits read-only firewall inspection but no rules mutation.
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 tests/test_fcm_dns_forensics_alpha18.py
+          python3 tests/test_fcm_box_pid_no_newline_alpha19.py
+          python3 tests/test_health_evidence_only_alpha20.py
+          python3 tests/test_health_parsed_whitelist_alpha21.py
+          python3 tests/test_android17_dns_binder_alpha22.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha22
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha21 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.21-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.21
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha22 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.21-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.22-integrated.zip')
+          guard=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          assert b'dnsresolver_binder_ready()' in guard
+          assert b'service call dnsresolver 11 i32' in guard
+          assert b'DNSFLUSH_SCOPE_FILE=' in guard
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              assert b'dnsresolver_binder_ready()' not in src.read('bin/fcm_guard.sh')
+              for entry in src.infolist():
+                  if entry.is_dir(): continue
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=guard
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.21',b'version=0.4.0-alpha.22').replace(b'versionCode=40021',b'versionCode=40022')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA22_ANDROID17_DNS_RESOLVER_RECOVERY.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha22: Android17 verified IDnsResolver flushNetworkCache transaction 11 only for real NetId cache IDs; once per outage and unchanged network set; no Box dependency, no routing/DNS-server/firewall changes, no GMS restart. Long-term restoration during true outage requires future field validation.')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.22' in z.read('module.prop')
+              assert b'versionCode=40022' in z.read('module.prop')
+              assert z.read('bin/fcm_guard.sh')==guard
+              for item in ('bin/fcm_dns_box_repair.sh','bin/fcm_dns_differential_diag.sh',
+                           'bin/health_status.sh','bin/static_common.sh','powerkeeper-runtime.dex',
+                           'zygisk/arm64-v8a.so','bin/fcmu_alarm_wait','bin/maintenance_worker.sh','customize.sh'):
+                  assert z.read(item)==old.read(item), 'protected file changed: '+item
+              for item in old.namelist():
+                  if item not in ('bin/fcm_guard.sh','module.prop'):
+                      assert z.read(item)==old.read(item), 'unexpected change: '+item
+              assert set(z.namelist())-set(old.namelist()) == {'ALPHA22_ANDROID17_DNS_RESOLVER_RECOVERY.txt'}
+              print('verified alpha21 -> alpha22: only guard/metadata/release note changed;',
+                    len(z.namelist()),'entries',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.22-integrated.zip.sha256
+
+      - name: Publish alpha22 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.22
+          cat > /tmp/alpha22_notes.md <<'EOF'
+          ## alpha22：Android 17 原生 DNS Resolver 缓存恢复修复（预览版）
+
+          2026-11-12 手机实测 FCM 从 00:18 至 04:32 断线约4小时14分、05:32 至 07:12 又断线约1小时40分，GMS Android DNS 解析 UNKNOWN_HOST，Root 显式上游 DNS仍可用。进一步读取 Android 原生 DnsResolver 记录发现，同时存在多个普通应用UID解析失败，故不能归咎于仅GMS或微信。
+
+          **已确认恢复程序兼容 Bug**：先前脚本调用 ndc resolver flushnet / cmd netd resolver flushnet 均被此 Android17 系统拒绝，但程序持续尝试，实际未执行任何缓存恢复。经 AOSP Android17 IDnsResolver.aidl 核对事务序号，真实手机确认只读服务 isAlive 成功，flushNetworkCache(int netId) 的 Binder transaction 11 可在有效网络缓存上成功执行。
+
+          alpha22 只在真实GMS DNS故障分支中，确认 SDK37、原生服务描述符和只读存活回复后，针对真实 DNSResolver NetId 调用缓存刷新；同一断连内对同组网络最多清理一次。其他Android版本保留已有命令兼容路径，未验证的Binder版本绝不尝试事务11。没有安装Box的用户照常使用。绝不修改DNS服务器、代理、路由、iptables、PowerKeeper、Zygisk、心跳间隔或GMS进程。
+
+          全套旧版回归、新增隔离模拟服务/失败关闭、alpha21官方ZIP逐文件一致性验收均为发布前条件，仅守护脚本和版本说明改变。缓存清理是已证实可用的修复步骤，但**不能据此声称系统级路由/网络故障已根治**；同一夜间多UID同时失败提示可能存在底层系统DNS传输、蜂窝UID网络绑定或Box DNS路径问题，需下一次真实夜间观测验证效果。保留预览版，不设稳定Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Published alpha22 is immutable; release a new version instead of overwriting" >&2
+            exit 1
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.22-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.22-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.22（Android17 DNS Resolver 缓存恢复修复预览版）" --notes-file /tmp/alpha22_notes.md --prerelease --latest=false
+          fi
