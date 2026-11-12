@@ -8,6 +8,18 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.22（预览版）：修复 Android 17 原生 DNS 缓存恢复失效
+
+[**下载 alpha22 完整 Magisk ZIP**](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.22)
+
+2026-11-12 实机发现严重夜间 FCM 断连：00:18—04:32（4小时14分）、05:32—07:12（1小时40分）。当时不仅 GMS UID 10139，Android DnsResolver 内部记录的微信、Google Play 商店及其他应用 UID 均存在 `getaddrinfo failed`，而 Root 显式查询上游 DNS 可成功。因此不能简单声称 Box、GMS 或 PowerKeeper 单独引起故障。两次受限重启 Box 均未立即恢复，重复发送 GCM_RECONNECT 也无法修复系统 DNS。
+
+**已确认兼容问题并修复：**旧版使用 `ndc resolver flushnet` 和 `cmd netd resolver flushnet`，在当前 Android 17 上均返回不可用；曾记录的“清除 DNS 缓存”实际从未成功。alpha22 在确认 `SDK=37`、原生 DNS Resolver Binder 服务描述符、`isAlive` 只读响应及有效缓存 NetId 后，调用 Android 17 正式接口 `IDnsResolver.flushNetworkCache(int netId)`（事务号11）；该接口已在手机上现场执行并返回成功，GMS 保持在线。
+
+同一次断连和相同网络缓存集合**最多成功执行一次**，只有新的断连或网络集合变化才会再次刷新，避免重复耗电和掩盖底层故障。旧系统不猜测 Binder 事务号，仍按原有兼容逻辑安全退出；未安装 Box4Magisk 完全不影响模块基础功能。所有健康状态“未核验显示中性”的规则保持不变。
+
+**尚未证实整个长断连根治。** 该版本修复的是确定失效的缓存恢复步骤；更底层的 DNS 传输、网络 UID 绑定和 Box DNS 捕获路径仍有可能导致长断连。是否真正缩短恢复时间，必须核对之后一晚的真实日志。此版本保持预览版，不设置稳定 Latest；不建议通过更高频心跳或反复杀死 GMS 来掩盖网络解析故障。
+
 ## v0.4.0-alpha.21（最终跨机型补丁）：未核验、未知格式不亮黄灯
 
 **[alpha21 Release 与完整 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.21)**。
