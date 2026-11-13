@@ -35,9 +35,11 @@ checks = {
             'user_disabled_box','box_pid_missing','box_not_running',
             'box_dns_capture_missing','no_ipv4_route','gms_uid_mismatch',
             'box_recently_started','gms_dns_already_restored',
-            'gms_query_not_conclusive','upstream_or_transport_unavailable',
-            'eligible_but_recovery_rate_limited',
-            'root_gms_dns_differential_present')),
+            'gms_query_not_conclusive','physical_upstream_or_transport_unavailable',
+            'physical_upstream_bypass_unverified','box_egress_not_proven',
+            'box_path_fault_but_recovery_rate_limited',
+            'both_dns_paths_work_gms_native_fails_not_box_proven',
+            'physical_dns_ok_box_captured_dns_failed')),
     "GMS-UID and explicit upstream paths distinguished":
         '/system/bin/ping -c 1 -W 1 mtalk.google.com' in diag and
         'busybox nslookup mtalk.google.com "$SERVER"' in diag,
