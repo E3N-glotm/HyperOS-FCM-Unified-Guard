@@ -25,7 +25,7 @@ assert '[ $((now_epoch-last_fallback)) -ge 21600 ]' in helper
 assert '"$STATE_DIR/fallback_outage.epoch"' in helper
 assert 'busybox timeout 75 /system/bin/sh "$SERVICE" restart' in helper
 assert 'fcm_dns_box_repair.sh" fallback "$down_since"' in guard
-assert "root_gms_dns_differential_present" in diag
+assert "both_dns_paths_work_gms_native_fails_not_box_proven" in diag
 
 legacy = ('read -r proxy_pid < "$1" || exit 9; '
           'printf "PID:%s" "$proxy_pid"')
