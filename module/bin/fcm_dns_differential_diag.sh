@@ -135,6 +135,12 @@ if ! iptables -w 5 -t mangle -S BOX_LOCAL 2>/dev/null |
   gate=physical_upstream_bypass_unverified
   exit 0
 fi
+if ! ip -4 rule show 2>/dev/null | grep -Fq 'fwmark 0x1000000/0x1000000 lookup 2024' ||
+   ! ip -4 route show table 2024 2>/dev/null | grep -Fq 'local default dev lo'; then
+  upstream=unknown
+  gate=box_egress_not_proven
+  exit 0
+fi
 
 for SERVER in 223.5.5.5 61.139.2.69; do
   ANSWER=$(busybox timeout 8 su -g 3005 0 -c \
