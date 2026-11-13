@@ -1,0 +1,150 @@
+name: Build and publish HyperOS FCM Unified Guard alpha23
+# One-time alpha23 release for route-separated DNS evidence and outage single-shot.
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha23-preview-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha23-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha23:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha23 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          # Both paths must remain fail-closed; the legacy test now permits read-only firewall inspection but no rules mutation.
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 tests/test_fcm_dns_forensics_alpha18.py
+          python3 tests/test_fcm_box_pid_no_newline_alpha19.py
+          python3 tests/test_health_evidence_only_alpha20.py
+          python3 tests/test_health_parsed_whitelist_alpha21.py
+          python3 tests/test_android17_dns_binder_alpha22.py
+          python3 tests/test_dns_route_split_alpha23.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Compile PowerKeeper runtime bridge DEX for alpha23
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          python3 powerkeeper-runtime/build.py --sdk "$ANDROID_HOME" --jdk "$JAVA_HOME"
+          test -s powerkeeper-runtime/build/powerkeeper-runtime.dex
+      - name: Download and checksum-verify alpha22 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.22-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.22
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha23 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.22-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.23-integrated.zip')
+          replacement={
+              'bin/fcm_guard.sh': pathlib.Path('module/bin/fcm_guard.sh').read_bytes(),
+              'bin/fcm_dns_box_repair.sh': pathlib.Path('module/bin/fcm_dns_box_repair.sh').read_bytes(),
+              'bin/fcm_dns_differential_diag.sh': pathlib.Path('module/bin/fcm_dns_differential_diag.sh').read_bytes()
+          }
+          assert b'DNSFLUSH_OUTAGE_FILE' in replacement['bin/fcm_guard.sh']
+          assert b'physical_dns_ok' in replacement['bin/fcm_dns_box_repair.sh']
+          assert b'both_dns_paths_work_gms_native_fails_not_box_proven' in replacement['bin/fcm_dns_differential_diag.sh']
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              for entry in src.infolist():
+                  if entry.is_dir(): continue
+                  data=src.read(entry.filename)
+                  if entry.filename in replacement:
+                      data=replacement[entry.filename]
+                  elif entry.filename=='module.prop':
+                      data=data.replace(b'version=0.4.0-alpha.22',b'version=0.4.0-alpha.23').replace(b'versionCode=40022',b'versionCode=40023')
+                  dst.writestr(entry,data)
+              note=zipfile.ZipInfo('ALPHA23_DNS_ROUTE_SPLIT_AND_OUTAGE_SINGLE_SHOT.txt')
+              note.create_system=3
+              note.external_attr=(0o100644 << 16)
+              dst.writestr(note,'alpha23: root/GID0 DNS is transparently routed through Box, unlike physical direct root/GID3005. Do not infer a broken Box path from root success and GMS libc failure. Proxy restart only when actual direct physical upstream resolves but Box-captured path fails; if both work do NOT restart Box. For Android17 Binder DNS cache flush only the verified current default resolver network, once per outage even if NetId rotates. Non-Box users unaffected, no DNS server/route/firewall modification, no new background workers. Overnight outcome not yet verified.')
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert b'version=0.4.0-alpha.23' in z.read('module.prop')
+              assert b'versionCode=40023' in z.read('module.prop')
+              for path,data in replacement.items():
+                  assert z.read(path)==data, 'modified payload mismatch: '+path
+              for path in ('bin/health_status.sh','bin/static_common.sh',
+                           'powerkeeper-runtime.dex','zygisk/arm64-v8a.so',
+                           'bin/fcmu_alarm_wait','bin/maintenance_worker.sh','customize.sh'):
+                  assert z.read(path)==old.read(path), 'protected payload changed: '+path
+              for path in old.namelist():
+                  if path not in (*replacement.keys(),'module.prop'):
+                      assert z.read(path)==old.read(path),'unexpected modification: '+path
+              assert set(z.namelist())-set(old.namelist())=={'ALPHA23_DNS_ROUTE_SPLIT_AND_OUTAGE_SINGLE_SHOT.txt'}
+              print('verified alpha22->alpha23: 3 DNS scripts+version+note only;',len(z.namelist()),'entries',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.23-integrated.zip.sha256
+
+      - name: Publish alpha23 prerelease (do not change stable Latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.23
+          cat > /tmp/alpha23_notes.md <<'EOF'
+          ## alpha23：区分真实直连 DNS 和 Box DNS，修复错误恢复与频繁无效缓存刷新（预览版）
+
+          2026-11-13 实机再次确认凌晨约03:07–07:06 FCM 断连近4小时。alpha22 的 DNSResolver Binder 缓存刷新成功多次、Box重启也未修复，直到 07:06 系统 DNS 重新可用才恢复。进一步检查原生 Resolver 发现多应用 UID 同时失败，当前某 Wi-Fi IPv6 DNS 服务器9次查询均为 INTERNAL_ERROR，而移动与 Wi-Fi 的真实 NetId 持续变化。
+
+          **关键实机对照**：本机 Box LOCAL iptables 对 UDP53 设置 MARK=0x1000000 并将其路由到本地代理表2024；root/GID0 查询会命中Box的53转发，root/GID3005查询则因Box早期RETURN规则绕过代理。对同一个域名作受控查询，前者UDP53计数增加、后者不增加。过去“root上游成功但GMS失败”不能证明物理上游成功，导致不恰当地把DNS故障归因于Box并重启代理。
+
+          **alpha23改动**：独立飞行记录器分别测试真实直连GID3005 DNS、代理捕获GID0 DNS以及真实GMS UID Android libc DNS；只有物理直连DNS成功、Box捕获路径确实失败，且Box服务/路由/PID/故障时间/6小时冷却等所有门控均成立，才允许一次Box恢复。若两条上游都成功但GMS失败，明确判定尚不能证明Box故障，禁止重启Box。对于未安装Box的用户全部安全跳过。
+
+          将 alpha22 的 DNS 缓存刷新从“所有 NetId、网络变化后重新尝试”改为仅当前 ConnectivityService 真实默认网络、且在该网络存在 DNSResolver 缓存时才操作，**同一次明确断连最多成功刷新一次**。不再因蜂窝 NetId 变化而连续刷新 IMS/旧网络缓存。
+
+          修复只涉及三份FCM DNS脚本和版本说明；不修改 Box 用户配置、路由、DNS服务器、iptables、PowerKeeper、GMS进程或唤醒周期，不增后台进程。CI运行全部旧测试、新的五场景双路径模拟及单次缓存测试、并与已发布alpha22完整ZIP逐文件核验无关组件一致。
+
+          **注意**：本版修复两项确证的恢复/诊断误判与额外功耗，但还不能宣称已定位造成多个应用夜间 DNS 传输失败的唯一底层原因，也不能承诺下一晚不再长断连。必须用后续真实故障证据判断是否需要网络层、运营商DNS或OEM路由专项修复。继续保留预览版，不设Latest。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Published alpha23 is immutable; release a new version instead of overwriting" >&2
+            exit 1
+          else
+            gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.23-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.23-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.23（DNS路径误判与重复恢复修复预览版）" --notes-file /tmp/alpha23_notes.md --prerelease --latest=false
+          fi
