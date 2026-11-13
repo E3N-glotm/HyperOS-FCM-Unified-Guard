@@ -15,7 +15,7 @@ assert "DNSFLUSH_SCOPE_FILE=$RUNDIR/fcm_dns_flush_scope.signature" in guard
 assert "service call dnsresolver 11 i32" in fragment
 assert "service call dnsresolver 1" in fragment
 assert '[ "$(getprop ro.build.version.sdk)" = 37 ]' in fragment
-assert "no GMS/Box restart" in fragment
+assert "underlying DNS transport remains unproven" in fragment
 for forbidden in ("sh $SERVICE restart","am force-stop","iptables -I","setResolverConfiguration"):
     assert forbidden not in fragment, forbidden
 
@@ -51,6 +51,8 @@ fi
     write(b/"dumpsys", """#!/bin/sh
 if [ "$1" = dnsresolver ]; then
   printf '%s\n' 'NetId: 594' '  DNS servers: 61.139.2.69' 'NetId: 598'
+elif [ "$1" = connectivity ]; then
+  printf 'Active default network: %s\n' "$MOCK_DEFAULT"
 fi
 """)
     write(b/"ndc", "#!/bin/sh\necho '500 0 Command not recognized'\nexit 1\n")
@@ -61,6 +63,7 @@ fi
         'RUNDIR="$MOCK_ROOT"\n'
         'DNSFLUSH_FILE="$MOCK_ROOT/flush.epoch"\n'
         'DNSFLUSH_SCOPE_FILE="$MOCK_ROOT/flush.scope"\n'
+        'DNSFLUSH_OUTAGE_FILE="$MOCK_ROOT/flush.outage"\n'
         'DOWN_FILE="$MOCK_ROOT/outage.epoch"\n'
         'run_timeout() { "$@"; }\n'
         'log_msg() { printf "%s\\n" "$*" >> "$MOCK_ROOT/events.log"; }\n'
@@ -70,24 +73,24 @@ fi
     (t/"outage.epoch").write_text("1794432797\n")
     env={**os.environ,"MOCK_ROOT":str(t),"PATH":str(b)+os.pathsep+os.environ["PATH"],
          "CALLS":str(t/"calls.log"),"MOCK_SDK":"37","MOCK_BINDER_FAIL":"0",
-         "MOCK_NOW":"1794440000"}
+         "MOCK_NOW":"1794440000","MOCK_DEFAULT":"594"}
     def run(**changes):
         e={**env,**{k:str(v) for k,v in changes.items()}}
         return subprocess.run(["sh",str(harness)],env=e,capture_output=True,
                               text=True,check=True,timeout=10)
     run()
-    assert (t/"calls.log").read_text().splitlines()==["594","598"]
-    assert "binder=2" in (t/"events.log").read_text()
-    assert (t/"flush.scope").read_text().startswith("1794432797:594,598")
-    print("PASS real NetId caches only: Android17 Binder flushNetworkCache(11)")
-    run(MOCK_NOW=1794440800)
-    assert len((t/"calls.log").read_text().splitlines())==2
-    print("PASS same outage and cached network set never repeats")
+    assert (t/"calls.log").read_text().splitlines()==["594"]
+    assert "binder=1" in (t/"events.log").read_text()
+    assert (t/"flush.scope").read_text().startswith("1794432797:594")
+    print("PASS only verified current default NetId: Android17 Binder flushNetworkCache(11)")
+    run(MOCK_NOW=1794440800,MOCK_DEFAULT=598)
+    assert len((t/"calls.log").read_text().splitlines())==1
+    print("PASS same outage never repeats even when cellular default NetId changes")
     (t/"outage.epoch").write_text("1794440801\n")
-    run(MOCK_NOW=1794440805)
-    assert len((t/"calls.log").read_text().splitlines())==4
+    run(MOCK_NOW=1794440805,MOCK_DEFAULT=598)
+    assert len((t/"calls.log").read_text().splitlines())==2
     print("PASS new outage can refresh caches")
-    for name in ("flush.scope","flush.epoch","calls.log","events.log"):
+    for name in ("flush.scope","flush.outage","flush.epoch","calls.log","events.log"):
         (t/name).unlink()
     run(MOCK_SDK=36)
     assert not (t/"calls.log").exists()
