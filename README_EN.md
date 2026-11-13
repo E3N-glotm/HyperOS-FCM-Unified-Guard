@@ -8,6 +8,18 @@ A single Magisk module combining the Millet/FCM guard, adaptive framework polici
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
+## v0.4.0-alpha.23: Verify actual DNS routes; stop redundant cache repairs (preview)
+
+[Alpha23 full Magisk ZIP and SHA256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.23).
+
+On Nov 13, 2026, FCM was disconnected for almost four hours (03:07–07:06); repeated successful alpha22 DNSResolver Binder cache flushes and one Box restart did not restore resolution. A controlled on-device counter test established an important false assumption: root UID0/GID0's UDP53 requests hit Box4Magisk's `0x1000000` transparent mark and table2024, while root UID0/GID3005 bypasses that route through the verified owner-group RETURN rule. Thus a successful root DNS query does **not** certify the upstream carrier DNS path used by the Android resolver.
+
+Alpha23 separates three paths: GMS UID native libc resolution, physical upstream via GID3005, and transparently intercepted Box DNS via GID0. An automatic Box restart is now eligible **only when physical DNS resolves while Box-captured DNS explicitly fails**, in addition to all existing process identity, route, time and six-hour cooldown safeguards. If both root paths resolve while GMS native DNS fails, Box is not proven broken and the module does not restart it. Phones without Box remain supported unchanged.
+
+The Android 17 DNS cache flush is also restricted to the real active default network NetId, once per outage even if mobile network IDs rotate; no unrelated cached IMS or stale networks are touched. CI passes all old regressions, five mock DNS route cases, new single-shot cache semantics and byte-identical protection of all unrelated files from the official alpha22 ZIP. Zygisk, PowerKeeper, GMS heartbeat, kernel alarms and neutral unknown-state indicators remain unchanged.
+
+This fixes two demonstrated recovery/diagnostic defects, **not necessarily the systemic overnight DNS transport issue itself**. Confirmation requires subsequent real-world connection and message-delivery history. Preview only; stable Latest unchanged.
+
 ## v0.4.0-alpha.22 (preview): Android 17 native DNS cache recovery fix
 
 [Full alpha22 Magisk release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.22).
