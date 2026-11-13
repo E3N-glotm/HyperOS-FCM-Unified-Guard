@@ -179,22 +179,44 @@ if [ "$mode" = fallback ]; then
   fi
   printf '%s\n' "$uid_lookup" | grep -Eqi 'unknown host|bad address|name or service not known|temporary failure in name resolution' || exit 0
 
-  # Root explicitly queries a raw DNS upstream instead of Android libc.
-  # If ROOT also cannot reach either upstream, we are dealing with a real
-  # transport/DNS outage, not a locally isolated resolver path: do nothing.
-  raw_dns_ok=0
+  # alpha23: the previous 'root resolves, GMS does not' gate was wrong.
+  # An ordinary root/GID0 UDP53 query is transparently marked into the Box
+  # local proxy (route table 2024), while uid0/gid3005 is deliberately
+  # bypassed by the verified Box owner rule. Such probes are DIFFERENT paths.
+  # Only restart Box if the direct physical DNS path works while the Box
+  # captured DNS path itself fails. If BOTH work but GMS libc still fails,
+  # Box is not proven broken: don't disrupt other proxy users.
+  iptables -w 5 -t mangle -S BOX_LOCAL 2>/dev/null |
+    grep -Fq -- '-m owner --uid-owner 0 --gid-owner 3005 -j RETURN' || exit 0
+
+  physical_dns_ok=0
+  box_dns_ok=0
   for upstream in 223.5.5.5 61.139.2.69; do
-    raw_result=$(busybox timeout 6 busybox nslookup mtalk.google.com "$upstream" 2>/dev/null)
-    if printf '%s\n' "$raw_result" | grep -Fq 'Name:      mtalk.google.com'; then
-      raw_dns_ok=1
+    direct_answer=$(busybox timeout 8 su -g 3005 0 -c \
+      "busybox timeout 6 busybox nslookup mtalk.google.com $upstream" 2>/dev/null)
+    if printf '%s\n' "$direct_answer" | grep -Fq 'Name:      mtalk.google.com'; then
+      physical_dns_ok=1
       break
     fi
   done
-  [ "$raw_dns_ok" = 1 ] || exit 0
+  [ "$physical_dns_ok" = 1 ] || exit 0
+  for upstream in 223.5.5.5 61.139.2.69; do
+    box_answer=$(busybox timeout 8 su -g 0 0 -c \
+      "busybox timeout 6 busybox nslookup mtalk.google.com $upstream" 2>/dev/null)
+    if printf '%s\n' "$box_answer" | grep -Fq 'Name:      mtalk.google.com'; then
+      box_dns_ok=1
+      break
+    fi
+  done
+  [ "$box_dns_ok" = 0 ] || {
+    printf '%s FCM guard: Android DNS failed but BOTH direct(GID3005) and Box-captured(GID0) DNS resolved; Box restart withheld; cause likely elsewhere\n' \
+      "$(date '+%F %T')" >> "$OUTLOG"
+    exit 0
+  }
 
-  # Record a bounded diagnosis once, before any intervention. This is not
-  # proof that Box caused the fault: label it explicitly as differential.
-  printf '%s FCM guard: root upstream DNS resolves but GMS UID Android DNS fails for %ss; Box DNS capture active, allowing ONE conditional proxy recovery; cause unproven\n' \
+  # A single evidence-gated restart remains possible for an actually
+  # broken Box DNS path, with the existing per-outage and six-hour limits.
+  printf '%s FCM guard: physical direct DNS resolves but Box-captured DNS fails; one conditional Box recovery eligible, outage=%ss\n' \
     "$(date '+%F %T')" "$outage_age" >> "$OUTLOG"
   printf '%s\n' "$outage_stamp" > "$STATE_DIR/fallback_outage.epoch"
   printf '%s\n' "$now_epoch" > "$STATE_DIR/fallback_last.epoch"
@@ -202,7 +224,7 @@ if [ "$mode" = fallback ]; then
 
   busybox timeout 75 /system/bin/sh "$SERVICE" restart >/dev/null 2>&1
   rc=$?
-  printf '%s FCM guard: root-vs-GMS DNS differential Box recovery rc=%s; reevaluate at next normal poll\n' \
+  printf '%s FCM guard: physical-vs-Box DNS differential recovery rc=%s; reevaluate at next normal poll\n' \
       "$(date '+%F %T')" "$rc" >> "$OUTLOG"
   [ "$rc" -eq 0 ] || exit 1
   printf 'BOX_FCM_DNS_RECOVERY_TRIGGERED\n'
