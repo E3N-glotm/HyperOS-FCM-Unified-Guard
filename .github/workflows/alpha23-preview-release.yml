@@ -1,6 +1,6 @@
 name: Build and publish HyperOS FCM Unified Guard alpha23
 # One-time alpha23 release for route-separated DNS evidence and outage single-shot.
-# Rebuild after updating alpha18 source contracts to the separated DNS paths.
+# Rebuild with updated alpha18 and alpha22 compatibility regressions for alpha23.
 on:
   push:
     paths:
