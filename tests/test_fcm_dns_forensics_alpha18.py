@@ -42,7 +42,9 @@ checks = {
             'physical_dns_ok_box_captured_dns_failed')),
     "GMS-UID and explicit upstream paths distinguished":
         '/system/bin/ping -c 1 -W 1 mtalk.google.com' in diag and
-        'busybox nslookup mtalk.google.com "$SERVER"' in diag,
+        'su -g 3005 0 -c' in diag and
+        'su -g 0 0 -c' in diag and
+        'busybox nslookup mtalk.google.com $SERVER' in diag,
     "diagnostic does not mutate network/Box/GMS state":
         not re.search(
             r"(?m)^\\s*(?:iptables|ip6tables)\\b[^\\n]*\\s-(?:A|I|D|F|R|P|N|X|Z)\\b"
