@@ -38,9 +38,11 @@ checks={
     "unknown host|bad address|name or service not known|temporary failure in name resolution" in helper and
     "if printf '%s\\n' \"$uid_lookup\" | grep -Eq '^PING" in helper,
   "fallback requires functioning independent explicit upstream DNS":
-    "busybox timeout 6 busybox nslookup mtalk.google.com" in helper and
-    '223.5.5.5 61.139.2.69' in helper and
-    '[ "$raw_dns_ok" = 1 ] || exit 0' in helper,
+    'su -g 3005 0 -c' in helper and
+    'su -g 0 0 -c' in helper and
+    '[ "$physical_dns_ok" = 1 ] || exit 0' in helper and
+    '[ "$box_dns_ok" = 0 ] ||' in helper and
+    '223.5.5.5 61.139.2.69' in helper,
   "fallback at most once each outage and at least 6h apart":
     'fallback_outage.epoch' in helper and
     'fallback_last.epoch' in helper and
