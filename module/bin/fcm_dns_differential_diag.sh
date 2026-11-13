@@ -125,21 +125,45 @@ else
   exit 0
 fi
 
-# Explicit upstream DNS through root; if both fail, classify as upstream or
-# mobile network unavailable and DO NOT recommend an indiscriminate restart.
+# alpha23: Root/GID0 explicit DNS is BOX-CAPTURED by this device's
+# TProxy rule; it is not evidence the physical carrier upstream works.
+# Only call GID3005 queries physical when Box proves that UID0/GID3005
+# RETURN precedes UDP53 MARK. GMS uses the real Android libc resolver.
+if ! iptables -w 5 -t mangle -S BOX_LOCAL 2>/dev/null |
+    grep -Fq -- '-m owner --uid-owner 0 --gid-owner 3005 -j RETURN'; then
+  upstream=unknown
+  gate=physical_upstream_bypass_unverified
+  exit 0
+fi
+
 for SERVER in 223.5.5.5 61.139.2.69; do
-  ANSWER=$(busybox timeout 6 busybox nslookup mtalk.google.com "$SERVER" 2>/dev/null)
+  ANSWER=$(busybox timeout 8 su -g 3005 0 -c \
+    "busybox timeout 6 busybox nslookup mtalk.google.com $SERVER" 2>/dev/null)
   if printf '%s\n' "$ANSWER" | grep -Fq 'Name:      mtalk.google.com'; then
-    upstream=resolved
+    upstream=physical_direct_resolved
     break
   fi
 done
-if [ "$upstream" != resolved ]; then
-  upstream=failed
-  gate=upstream_or_transport_unavailable
+if [ "$upstream" != physical_direct_resolved ]; then
+  upstream=physical_direct_failed
+  gate=physical_upstream_or_transport_unavailable
+  exit 0
+fi
+
+box_answer=failed
+for SERVER in 223.5.5.5 61.139.2.69; do
+  ANSWER=$(busybox timeout 8 su -g 0 0 -c \
+    "busybox timeout 6 busybox nslookup mtalk.google.com $SERVER" 2>/dev/null)
+  if printf '%s\n' "$ANSWER" | grep -Fq 'Name:      mtalk.google.com'; then
+    box_answer=resolved
+    break
+  fi
+done
+if [ "$box_answer" = resolved ]; then
+  gate=both_dns_paths_work_gms_native_fails_not_box_proven
 elif [ "$cooldown" != ready ]; then
-  gate=eligible_but_recovery_rate_limited
+  gate=box_path_fault_but_recovery_rate_limited
 else
-  gate=root_gms_dns_differential_present
+  gate=physical_dns_ok_box_captured_dns_failed
 fi
 exit 0
