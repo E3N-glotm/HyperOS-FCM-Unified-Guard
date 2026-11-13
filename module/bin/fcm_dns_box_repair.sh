@@ -188,6 +188,8 @@ if [ "$mode" = fallback ]; then
   # Box is not proven broken: don't disrupt other proxy users.
   iptables -w 5 -t mangle -S BOX_LOCAL 2>/dev/null |
     grep -Fq -- '-m owner --uid-owner 0 --gid-owner 3005 -j RETURN' || exit 0
+  ip -4 rule show 2>/dev/null | grep -Fq 'fwmark 0x1000000/0x1000000 lookup 2024' || exit 0
+  ip -4 route show table 2024 2>/dev/null | grep -Fq 'local default dev lo' || exit 0
 
   physical_dns_ok=0
   box_dns_ok=0
