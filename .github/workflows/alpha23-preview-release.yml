@@ -1,10 +1,8 @@
 name: Build and publish HyperOS FCM Unified Guard alpha23
 # One-time alpha23 release for route-separated DNS evidence and outage single-shot.
 # Rebuild with updated alpha18 and alpha22 compatibility regressions for alpha23.
+# Official alpha23 published, tested and on-phone checksum-verified; never republish assets.
 on:
-  push:
-    paths:
-      - '.github/workflows/alpha23-preview-release.yml'
   workflow_dispatch:
 
 permissions:
