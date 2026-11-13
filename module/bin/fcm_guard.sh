@@ -11,6 +11,7 @@ DNSFAIL_FILE=$RUNDIR/fcm_dns_fail.epoch
 DNSOK_FILE=$RUNDIR/fcm_dns_recovered_since.epoch
 DNSFLUSH_FILE=$RUNDIR/fcm_dns_flush.epoch
 DNSFLUSH_SCOPE_FILE=$RUNDIR/fcm_dns_flush_scope.signature
+DNSFLUSH_OUTAGE_FILE=$RUNDIR/fcm_dns_flush_outage.epoch
 SOFT_RECONNECT_FILE=$RUNDIR/fcm_soft_reconnect.epoch
 BYPASS_UID_FILE=$RUNDIR/fcm_bypass.uid
 KEEPALIVE_FILE=$RUNDIR/fcm_keepalive.epoch
@@ -425,78 +426,76 @@ dnsresolver_binder_flush_one() {
     grep -Eq "^Result: Parcel\\([[:space:]]*00000000[[:space:]]+'"
 }
 
+# Resolve *one* real current default network: old alpha22 looped through all
+# stale/IMS/secondary resolver NetIds and repeated each time Android rotated
+# the network IDs. Cache refresh cannot repair a transport/routing failure.
+# If we cannot prove one default network with an active resolver cache, skip.
+dns_active_default_netid() {
+  default_id=$(run_timeout dumpsys connectivity 2>/dev/null | awk '
+    $1 == "Active" && $2 == "default" && $3 == "network:" &&
+      $4 ~ /^[0-9]+$/ { print $4; exit }
+  ')
+  case "$default_id" in ''|*[!0-9]*) return 1;; esac
+  dns_netids | grep -Fxq "$default_id" || return 1
+  printf '%s\n' "$default_id"
+}
+
 flush_android_dns() {
   flush_now=$1
+  outage_stamp=$(cat "$DOWN_FILE" 2>/dev/null)
+  case "$outage_stamp" in ''|*[!0-9]*) return 0;; esac
+
+  # A successful flush has precisely one opportunity per confirmed outage.
+  # Previously merely changing mobile NetIds gave the same failing DNS
+  # transport another flush every ~30 minutes for hours, wasting work.
+  [ "$(cat "$DNSFLUSH_OUTAGE_FILE" 2>/dev/null)" != "$outage_stamp" ] || return 0
   last_flush=$(cat "$DNSFLUSH_FILE" 2>/dev/null)
   case "$last_flush" in ''|*[!0-9]*) last_flush=0;; esac
   [ $((flush_now-last_flush)) -ge 300 ] 2>/dev/null || return 0
 
-  # Only real active netId caches from DNS Resolver are eligible. Never
-  # reset DNS servers, routes, app network bindings, Box, or the GMS process.
-  live_netids=$(dns_netids | "$BB" head -n 8)
-  [ -n "$live_netids" ] || {
-    log_msg "FCM guard: no active Android DNS resolver netId; flush skipped"
+  active_id=$(dns_active_default_netid) || {
+    log_msg "FCM guard: no proven current default DNS resolver cache; skip stale or IMS NetIds"
     return 0
   }
-  flush_scope=none
-  outage_stamp=$(cat "$DOWN_FILE" 2>/dev/null)
-  case "$outage_stamp" in
-    ''|*[!0-9]*) :;;
-    *) flush_scope=$(printf '%s:%s' "$outage_stamp" "$live_netids" | "$BB" tr '\n' ',');;
-  esac
-
-  # A verified Binder flush has no value repeating at 5-minute intervals for
-  # the same outage on the same networks: another failure is likely a live
-  # resolver transport / UID-routing defect, not merely a stale cache.
-  if [ "$flush_scope" != none ] &&
-     [ "$(cat "$DNSFLUSH_SCOPE_FILE" 2>/dev/null)" = "$flush_scope" ]; then
-    return 0
-  fi
 
   printf '%s\n' "$flush_now" > "$DNSFLUSH_FILE"
-  binder_ready=0
-  dnsresolver_binder_ready && binder_ready=1
-
   flushed=0
   binder_flushed=0
-  for netid in $live_netids; do
-    if [ "$binder_ready" -eq 1 ] &&
-       dnsresolver_binder_flush_one "$netid"; then
-      flushed=$((flushed+1))
-      binder_flushed=$((binder_flushed+1))
-      continue
-    fi
 
-    # Legacy path retained for older platforms where those commands exist.
+  if dnsresolver_binder_ready && dnsresolver_binder_flush_one "$active_id"; then
+    flushed=1
+    binder_flushed=1
+  else
+    # Legacy fallback remains for non-Android17 systems with supported ndc.
     if command -v ndc >/dev/null 2>&1; then
-      ndc_out=$("$BB" timeout 5 ndc resolver flushnet "$netid" 2>&1)
+      ndc_out=$("$BB" timeout 5 ndc resolver flushnet "$active_id" 2>&1)
       ndc_rc=$?
       case "$ndc_out" in
         *'Command not recognized'*|*'Failure calling service'*|*'Failed transaction'*|*'Exception'*) ndc_ok=0 ;;
         [45][0-9][0-9]' '*) ndc_ok=0 ;;
         *) [ "$ndc_rc" -eq 0 ] 2>/dev/null && ndc_ok=1 || ndc_ok=0 ;;
       esac
-      if [ "$ndc_ok" -eq 1 ]; then
-        flushed=$((flushed+1))
-        continue
-      fi
+      [ "$ndc_ok" -eq 1 ] && flushed=1
     fi
-    cmd_out=$("$BB" timeout 5 cmd netd resolver flushnet "$netid" 2>&1)
-    cmd_rc=$?
-    case "$cmd_out" in
-      *'Command not recognized'*|*'Failure calling service'*|*'Failed transaction'*|*'Exception'*) cmd_ok=0 ;;
-      *) [ "$cmd_rc" -eq 0 ] 2>/dev/null && cmd_ok=1 || cmd_ok=0 ;;
-    esac
-    [ "$cmd_ok" -eq 1 ] && flushed=$((flushed+1))
-  done
-
-  if [ "$binder_flushed" -gt 0 ] && [ "$flush_scope" != none ]; then
-    printf '%s\n' "$flush_scope" > "$DNSFLUSH_SCOPE_FILE"
+    if [ "$flushed" = 0 ]; then
+      cmd_out=$("$BB" timeout 5 cmd netd resolver flushnet "$active_id" 2>&1)
+      cmd_rc=$?
+      case "$cmd_out" in
+        *'Command not recognized'*|*'Failure calling service'*|*'Failed transaction'*|*'Exception'*) cmd_ok=0 ;;
+        *) [ "$cmd_rc" -eq 0 ] 2>/dev/null && cmd_ok=1 || cmd_ok=0 ;;
+      esac
+      [ "$cmd_ok" = 1 ] && flushed=1
+    fi
   fi
-  if [ "$flushed" -gt 0 ]; then
-    log_msg "FCM guard: Android DNS resolver cache flush confirmed, networks=$flushed binder=$binder_flushed; no GMS/Box restart; pending DNS recheck"
+
+  if [ "$flushed" -eq 1 ]; then
+    # Mark successful rather than attempted operations. Leave other networks'
+    # system resolver caches untouched. An entirely new outage can try once.
+    printf '%s\n' "$outage_stamp" > "$DNSFLUSH_OUTAGE_FILE"
+    printf '%s:%s\n' "$outage_stamp" "$active_id" > "$DNSFLUSH_SCOPE_FILE"
+    log_msg "FCM guard: one bounded DNS cache flush for active_default_netid=$active_id binder=$binder_flushed outage=$outage_stamp; underlying DNS transport remains unproven"
   else
-    log_msg "FCM guard: DNS resolver cache flush unsupported/failed; no cache flush claimed"
+    log_msg "FCM guard: active default DNS cache flush unsupported/failed netid=$active_id; no success claimed"
   fi
 }
 
