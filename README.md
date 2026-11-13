@@ -8,6 +8,18 @@
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
+## v0.4.0-alpha.23：纠正 DNS 路径误判，限制无效恢复（预览版）
+
+**[alpha23 Magisk 完整包与 SHA256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.23)**。
+
+2026-11-13 的实机证据显示，FCM 在 03:07—07:06 再次断线约4小时，alpha22 的 Android DNSResolver Binder 缓存清理反复成功、Box 也发生重启，但均未立即恢复 GMS 的 `UNKNOWN_HOST`。进一步从 `ip rule` 与 `BOX_LOCAL` 原生计数器确认：**Root UID0/GID0 的 UDP53 查询会被 Box4Magisk 标记为 `0x1000000` 并转发至表2024，Root UID0/GID3005 经明确的 `RETURN` 规则走物理直连 DNS**。同一设备的受控测试确证，GID0 查询使 Box UDP53 捕获计数增加，而 GID3005 查询不增加。因此以往“Root 显式 DNS 正常、GMS UID libc DNS 失败”**不能作为 Box 故障的直接证据**。
+
+alpha23 将二级恢复升级为三路区分：GMS UID Android libc、直连物理上游 GID3005、Box 捕获路径 GID0。只有物理直连成功、Box 捕获路径明确失败、且 Box 配置/路由表/PID/限频/故障持续时间都严格验证后才允许执行一次代理恢复；如果 Box 与物理直连均成功而 GMS 仍无法解析，则不再误重启代理，并将故障标为尚未归因的系统 DNS 路径异常。该逻辑只在确实安装并启用 Box 的机型上工作；**没有安装 Box 的用户不会被要求安装，也不会因缺少 Box 而报黄灯。**
+
+此外，Android 17 的 Binder 缓存刷新只针对 `ConnectivityService` 已确认的当前默认网络 NetId，且同一次断连最多成功刷新一次，不再因蜂窝网络重协商产生新 NetId 而反复清理过期/IMS 网络缓存。全部更改仅涉及三份 DNS 脚本和版本说明；PowerKeeper、Zygisk、GMS 心跳、Kernel alarm、健康灯的“未核验不报黄”规则都保持不变。CI 对旧版回归、5 种 DNS 路径模拟、不同网络 ID 的单次缓存验证及上一版正式 ZIP 的不相关文件一致性检查全部通过。
+
+**边界：本版已经修复两项可证实的误判和无效恢复问题，但不能声称已经解决运营商蜂窝 DNS、Android Resolver 传输或系统 UID 路由引起的所有长断连。** 是否真正改善夜间消息投递，应以之后的实际断连记录判断。仍为预览版，不替换稳定版 Latest。
+
 ## v0.4.0-alpha.22（预览版）：修复 Android 17 原生 DNS 缓存恢复失效
 
 [**下载 alpha22 完整 Magisk ZIP**](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.22)
