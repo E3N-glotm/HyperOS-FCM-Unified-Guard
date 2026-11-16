@@ -61,4 +61,4 @@ jobs:
             dist/HyperOS-FCM-Unified-Guard-v0.2.0.zip dist/SHA256SUMS.txt \
             --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.2.0 (实验版)" \
             --notes "统一 Magisk 守护核心与 GPL-3.0 E3N FCM Live 桥接。LSPosed 仍是完整广播 Hook 的必要依赖；复用已验证的桥接 APK。优化事件处理、健康检查和进程管理。不承诺未经对照测试的电池续航提升。禁用旧 Millet Guard 后再启用本模块。" \
-            --prerelease
+            --latest

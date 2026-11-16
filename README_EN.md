@@ -2,11 +2,19 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.9 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
+A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.24 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.9/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.9/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.24/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.24/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
+
+## v0.4.0-alpha.24: Bounded second native DNS recovery on cellular (Latest)
+
+**[Alpha24 full Magisk ZIP and SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.24)**.
+
+On Nov 14–16, several cellular FCM outages lasted up to about 2h14m. GMS reported `UNKNOWN_HOST` while explicit physical and Box-captured DNS probes returned answers; the initial resolver cache flush did not restore service immediately. Alpha24 adds one bounded delayed check per outage. A second Android 17 native cache flush is attempted only after at least 300 seconds since the first refresh, on the same verified cellular default NetId, with Private DNS off, a configured IPv4 DNS server returning a valid FCM answer, and GMS still disconnected with native resolution failing. Verified GMS UID DNS recovery permits the existing soft reconnect, and a resolver snapshot is retained. Box is optional. The new recovery path adds no polling/daemon, DNS server, routing, firewall or global IPv6 changes, and does not restart Box or netd.
+
+The package preserves alpha23 components except the FCM guard, version and release note. Simulated regression tests passed and the device remained online after the local patch. A subsequent real cellular failure has not yet validated overnight recovery. Every new release is explicitly designated GitHub Latest; this indicates the most recent download, not completed stable-release validation.
 
 ## v0.4.0-alpha.23: Verify actual DNS routes; stop redundant cache repairs (preview)
 

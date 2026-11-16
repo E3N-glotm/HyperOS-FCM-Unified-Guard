@@ -12,6 +12,7 @@ DNSOK_FILE=$RUNDIR/fcm_dns_recovered_since.epoch
 DNSFLUSH_FILE=$RUNDIR/fcm_dns_flush.epoch
 DNSFLUSH_SCOPE_FILE=$RUNDIR/fcm_dns_flush_scope.signature
 DNSFLUSH_OUTAGE_FILE=$RUNDIR/fcm_dns_flush_outage.epoch
+DNSLATE_FILE=$RUNDIR/fcm_dns_late_attempt.epoch
 SOFT_RECONNECT_FILE=$RUNDIR/fcm_soft_reconnect.epoch
 BYPASS_UID_FILE=$RUNDIR/fcm_bypass.uid
 KEEPALIVE_FILE=$RUNDIR/fcm_keepalive.epoch
@@ -499,6 +500,95 @@ flush_android_dns() {
   fi
 }
 
+# Local alpha23 follow-up: only after the first flush did not restore
+# cellular DNS. One independent, evidence-gated retry per outage; never
+# restart DNS/netd, change routes, add firewall rules or query on healthy FCM.
+dns_late_native_recovery() {
+  late_now=$1
+  late_outage=$2
+  [ "$late_outage" -ge 300 ] 2>/dev/null || return 1
+  late_stamp=$(cat "$DOWN_FILE" 2>/dev/null)
+  case "$late_stamp" in ''|*[!0-9]*) return 1;; esac
+  [ "$(cat "$DNSFLUSH_OUTAGE_FILE" 2>/dev/null)" = "$late_stamp" ] || return 1
+  [ "$(cat "$DNSLATE_FILE" 2>/dev/null)" != "$late_stamp" ] || return 1
+  late_first=$(cat "$DNSFLUSH_FILE" 2>/dev/null)
+  case "$late_first" in ''|*[!0-9]*) return 1;; esac
+  [ $((late_now-late_first)) -ge 300 ] 2>/dev/null || return 1
+  late_id=$(dns_active_default_netid) || return 1
+  [ "$(cat "$DNSFLUSH_SCOPE_FILE" 2>/dev/null)" = "$late_stamp:$late_id" ] || return 1
+
+  # Spend exactly one bounded observation on this outage, not every wake.
+  printf '%s\n' "$late_stamp" > "$DNSLATE_FILE"
+  late_diag=$(run_timeout dumpsys dnsresolver 2>/dev/null | awk -v id="$late_id" '
+    /^NetId:/ { if (found) exit; if ($2 == id) found=1 }
+    found { print }
+  ')
+  [ -n "$late_diag" ] || return 1
+  printf '%s\n' "$late_diag" | grep -q 'TransportType: CELLULAR' || return 1
+  printf '%s\n' "$late_diag" | grep -q 'Private DNS mode: OFF' || return 1
+  late_snapshot="$RUNDIR/dns-late-native.latest.txt"
+  { date; printf 'outage=%s netid=%s\n' "$late_stamp" "$late_id"; printf '%s\n' "$late_diag"; } > "$late_snapshot"
+  late_servers=$(printf '%s\n' "$late_diag" | awk '
+    /^  DNS servers:/ { collecting=1; next }
+    collecting && /^    [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ / { print $1; next }
+    collecting { exit }
+  ' | head -n 2)
+  [ -n "$late_servers" ] || return 1
+
+  # Probe the actual configured IPv4 resolver, not an unrelated public
+  # nameserver. If Box capture exists, explicitly require its known direct
+  # root/GID3005 exemption; otherwise skip rather than confuse capture
+  # with physical DNS availability. No dependency on Box for other users.
+  late_direct=0
+  if iptables -w "$IPTABLES_WAIT_SECONDS" -t mangle -S BOX_LOCAL >/dev/null 2>&1; then
+    late_rules=$(iptables -w "$IPTABLES_WAIT_SECONDS" -t mangle -S BOX_LOCAL 2>/dev/null) || return 1
+    printf '%s\n' "$late_rules" | awk '
+      /--uid-owner 0 --gid-owner 3005 -j RETURN/ { if (!mark) bypass=1 }
+      /--dport 53.*MARK/ { mark=1 }
+      END { exit !(bypass && mark) }
+    ' || return 1
+    late_direct=1
+  fi
+  late_answer_ok=0
+  for late_server in $late_servers; do
+    # Only accept numerical dotted-quad addresses parsed from dnsresolver.
+    case "$late_server" in *[!0-9.]*|''|.*|*.) continue;; esac
+    if [ "$late_direct" = 1 ]; then
+      late_answer=$("$BB" timeout -k 1 6 su -g 3005 0 -c "busybox timeout -k 1 4 busybox nslookup mtalk.google.com $late_server" 2>/dev/null || true)
+    else
+      late_answer=$("$BB" timeout -k 1 5 "$BB" nslookup mtalk.google.com "$late_server" 2>/dev/null || true)
+    fi
+    if printf '%s\n' "$late_answer" | awk '
+      /^Name:[[:space:]]+mtalk\.google\.com\.?[[:space:]]*$/ { answer=1; next }
+      answer && /^Address([[:space:]]+[0-9]+)?:/ {
+        for (i=2;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) found=1
+      }
+      END { exit !found }
+    '; then
+      late_answer_ok=1
+      break
+    fi
+  done
+  [ "$late_answer_ok" = 1 ] || {
+    log_msg "FCM guard: late native DNS repair skipped: configured IPv4 server not proven reachable netid=$late_id"
+    return 1
+  }
+  [ "$(cat "$DOWN_FILE" 2>/dev/null)" = "$late_stamp" ] || return 1
+  [ "$(fcm_state)" = disconnected ] || return 1
+  [ -z "$(android_resolve_mtalk 2>/dev/null)" ] || return 1
+  [ "$(dns_active_default_netid)" = "$late_id" ] || return 1
+  dnsresolver_binder_ready || return 1
+  dnsresolver_binder_flush_one "$late_id" || return 1
+  late_ip=$(android_resolve_mtalk 2>/dev/null || true)
+  if [ -n "$late_ip" ]; then
+    printf '%s\n' "$late_now" > "$DNSOK_FILE"
+    log_msg "FCM guard: late native cache refresh verified GMS DNS recovered netid=$late_id server=$late_server mtalk=$late_ip"
+    return 0
+  fi
+  log_msg "FCM guard: late native cache refresh netid=$late_id completed but GMS DNS still failed; no further flush during outage"
+  return 1
+}
+
 rate_limited_dns_log() {
   dns_now=$1
   shift
@@ -597,6 +687,10 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
     rm -f "$DNSOK_FILE" 2>/dev/null || true
     remember_dns_failure "$now"
     flush_android_dns "$now"
+    if dns_late_native_recovery "$now" "$outage"; then
+      soft_reconnect_if_stalled "$now" "$outage" || true
+      exit 0
+    fi
 
     # alpha16: the current Box4Magisk profile routes FCM DNS over sing-box,
     # independently of the already-working GMS UID TCP 5228-5230 bypass.

@@ -2,11 +2,19 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.9（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
+单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.24（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.9/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.9/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.9-integrated-candidate.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.24/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.24/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
+
+## v0.4.0-alpha.24：蜂窝网络原生 DNS 二次受限恢复（Latest）
+
+**[alpha24 完整 Magisk ZIP 与 SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/tag/v0.4.0-alpha.24)**。
+
+11月14日至16日实机多次出现蜂窝网络长断连，最长约2小时14分钟；GMS 重连报 `UNKNOWN_HOST`，而独立直连和 Box 捕获查询均可获得 DNS 结果。首轮 DNSResolver 缓存刷新并未即时恢复。alpha24 增加同一断连内一次受限的延后验证：首轮刷新后至少300秒、当前蜂窝 NetId 保持一致、私有 DNS 关闭、实际配置的 IPv4 DNS 服务器返回 FCM 域名结果，且 GMS 仍明确断连并无法解析时，才尝试一次 Android 17 原生缓存刷新。随后重新验证 GMS UID 解析；仅确认恢复才尝试软重连。同时保留原生解析器取证快照。无 Box 用户可安全适用，不增加轮询或常驻进程，新增路径不改 DNS 服务器、路由、防火墙或全局 IPv6 设置，也不重启 Box 或 netd。
+
+本次采用 alpha23 完整包，仅更新守护脚本、版本号与说明；设备保持在线，模拟回归通过。尚未发生可验证的后续真实蜂窝故障，不宣称夜间长断连已经根治。后续每次新发布均明确设置 GitHub Latest；Latest 仅代表最新可下载版本，不等于稳定版验收完成。
 
 ## v0.4.0-alpha.23：纠正 DNS 路径误判，限制无效恢复（预览版）
 

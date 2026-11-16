@@ -1,0 +1,149 @@
+name: Build and publish HyperOS FCM Unified Guard alpha24
+# One-time alpha24 release; use the verified alpha23 integration baseline.
+# All new releases must explicitly be Latest (not GitHub prerelease).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha24-build-publish
+  cancel-in-progress: false
+
+jobs:
+  release-alpha24:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify alpha24 core and PowerKeeper DNS-policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          python3 tests/test_powerkeeper_dns_attestation_alpha13.py
+          python3 tests/test_powerkeeper_runtime_alpha14.py
+          python3 tests/test_powerkeeper_namespace_alpha15.py
+          python3 tests/test_fcm_dns_box_alpha16.py
+          python3 tests/test_fcm_dns_differential_alpha17.py
+          python3 tests/test_fcm_dns_forensics_alpha18.py
+          python3 tests/test_fcm_box_pid_no_newline_alpha19.py
+          python3 tests/test_health_evidence_only_alpha20.py
+          python3 tests/test_health_parsed_whitelist_alpha21.py
+          python3 tests/test_android17_dns_binder_alpha22.py
+          python3 tests/test_dns_route_split_alpha23.py
+          python3 tests/test_dns_late_native_alpha24.py
+          python3 powerkeeper-runtime/test_runtime.py
+      - name: Download and checksum-verify alpha23 full integration baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fcmu_base
+          cd /tmp/fcmu_base
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.23-integrated.zip
+          BASEURL=https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.23
+          curl -fsSL --retry 4 "$BASEURL/$BASE" -o "$BASE"
+          curl -fsSL --retry 4 "$BASEURL/$BASE.sha256" -o "$BASE.sha256"
+          sha256sum -c "$BASE.sha256"
+          echo "3da9e2b9e5c928e65efe3fd2d963ceb6de8d33b01f0e3c0d3d8dba8aab161f70  $BASE" | sha256sum -c -
+          unzip -t "$BASE" >/dev/null
+      - name: Build and verify alpha24 full Magisk distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          base=pathlib.Path('/tmp/fcmu_base/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.23-integrated.zip')
+          out=pathlib.Path('dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip')
+          script=pathlib.Path('module/bin/fcm_guard.sh').read_bytes()
+          assert hashlib.sha256(script).hexdigest()=='80240754f6364e8874519e5d7b9eef0a2d2c6ff8566dc69e7f8bed9cdedd51cb'
+          note_name='ALPHA24_BOUNDED_NATIVE_DNS_RECOVERY.txt'
+          note=b'alpha24: one delayed native DNS recovery attempt per confirmed cellular outage, at least 300 seconds after initial flush, unchanged active default NetId, Private DNS OFF, actual configured IPv4 resolver proven reachable and failing GMS UID DNS rechecked. Verify GMS resolution after flush, then use existing soft reconnect. Record native resolver diagnostics. The new path adds no background worker or global network changes and requires no Box installation. Subsequent real overnight outage outcome remains unverified.\n'
+          with zipfile.ZipFile(base) as src, zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1) as dst:
+              assert src.testzip() is None
+              assert len(src.namelist())==len(set(src.namelist()))
+              for entry in src.infolist():
+                  data=src.read(entry.filename)
+                  if entry.filename=='bin/fcm_guard.sh':
+                      data=script
+                  elif entry.filename=='module.prop':
+                      assert b'version=0.4.0-alpha.23\n' in data
+                      assert b'versionCode=40023\n' in data
+                      data=data.replace(b'version=0.4.0-alpha.23\n',b'version=0.4.0-alpha.24\n').replace(b'versionCode=40023\n',b'versionCode=40024\n')
+                  dst.writestr(entry,data)
+              info=zipfile.ZipInfo(note_name)
+              info.create_system=3
+              info.external_attr=(0o100644 << 16)
+              dst.writestr(info,note)
+          with zipfile.ZipFile(out) as z, zipfile.ZipFile(base) as old:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(set(z.namelist()))
+              assert set(z.namelist())-set(old.namelist())=={note_name}
+              assert set(old.namelist()) <= set(z.namelist())
+              assert b'version=0.4.0-alpha.24\n' in z.read('module.prop')
+              assert b'versionCode=40024\n' in z.read('module.prop')
+              assert z.read('bin/fcm_guard.sh')==script
+              assert (z.getinfo('bin/fcm_guard.sh').external_attr>>16)&0o111
+              assert b'\r' not in script
+              assert not any(n.endswith('.apk') or n.startswith('bridge/') for n in z.namelist())
+              for path in old.namelist():
+                  if path not in ('bin/fcm_guard.sh','module.prop'):
+                      assert z.read(path)==old.read(path),'unexpected modification: '+path
+              print('verified alpha23->alpha24: guard+version+note only;',len(z.namelist()),'entries',out.stat().st_size,'bytes')
+          checksum=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path(str(out)+'.sha256').write_text(f'{checksum}  {out.name}\n',encoding='ascii')
+          print('SHA256',checksum)
+          PY
+          cd dist
+          sha256sum -c HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FCM-Unified-Guard-alpha24
+          path: dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip*
+          if-no-files-found: error
+      - name: Publish alpha24 explicitly as Latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.24
+          cat > /tmp/alpha24_notes.md <<'EOF'
+          ## alpha24：蜂窝网络原生 DNS 二次受限恢复
+
+          11 月 14—16 日实机记录多次长断连，最长约 2 小时 14 分钟，GMS 重连反复出现 UNKNOWN_HOST。显式物理 DNS 与 Box 捕获 DNS 均能返回结果，首轮原生 DNS 缓存刷新未及时恢复。
+
+          - 新增受限的延后二次恢复：首轮刷新后至少 300 秒，同一断连、同一经验证的默认蜂窝 NetId、私有 DNS 关闭、实际配置的 IPv4 DNS 服务器可用，且 GMS 仍断连并无法解析，才尝试一次 Android 17 原生缓存刷新。
+          - 刷新后重新验证 GMS UID 的 DNS，只有确认恢复才进入现有软重连逻辑；保留原生 DNSResolver 快照。
+          - 新增路径不依赖 Box，不新建后台进程/轮询，不修改 DNS 服务器、路由、防火墙或全局 IPv6，不重启 Box 或 netd。
+          - 基于已发布 alpha23 完整 ZIP，逐文件验证仅 FCM 守护脚本、版本号及新说明发生变化，其他载荷（含 PowerKeeper、Zygisk）不变。
+
+          已通过实机脚本模拟测试和健康连接核验，CI 执行回归测试及完整 ZIP 校验。尚未经过下一次真实蜂窝故障验证，不代表长断连已彻底根治。GitHub Latest 仅表示当前最新发布，不等于稳定验收。
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Published alpha24 is immutable; release a new version instead of overwriting" >&2
+            exit 1
+          fi
+          gh release create "$TAG" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip.sha256 --target "$GITHUB_SHA" --title "HyperOS FCM Unified Guard v0.4.0-alpha.24（蜂窝 DNS 二次受限恢复）" --notes-file /tmp/alpha24_notes.md --latest
+          for n in 1 2 3 4 5; do
+            if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG" ]; then
+              echo "VERIFIED_LATEST=$TAG"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Latest verification failed" >&2
+          exit 1
