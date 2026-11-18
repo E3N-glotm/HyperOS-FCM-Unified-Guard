@@ -10,7 +10,7 @@ import tempfile
 root=Path(__file__).resolve().parents[1]
 guard=(root/"module/bin/fcm_guard.sh").read_text(encoding="utf-8")
 start=guard.index("dns_late_native_recovery() {")
-end=guard.index("\nrate_limited_dns_log() {",start)
+end=guard.index("\n# Optional last resort.",start)
 fragment=guard[start:end]
 
 assert "DNSLATE_FILE=$RUNDIR/fcm_dns_late_attempt.epoch" in guard

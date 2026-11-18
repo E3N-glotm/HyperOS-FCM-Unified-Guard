@@ -2,13 +2,17 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.25 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
+A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.26 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.25/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.25-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.25/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.25-integrated.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.26/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.26-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.26/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.26-integrated.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
-## v0.4.0-alpha.25: PowerKeeper OTA startup quarantine recovery (Latest)
+## v0.4.0-alpha.26: Startup compatibility and kernel wakeup fix (Latest)
+
+Fixes early boot firmware identity and alarm helper executable permissions. The final cellular DNS recovery fallback is explicitly opt-in, default off, and not yet validated during a real outage. See [release notes](docs/ALPHA26_RELEASE.md).
+
+## v0.4.0-alpha.25: PowerKeeper OTA startup quarantine recovery
 
 Fixes persistent quarantine after an unacknowledged boot during OTA or repeated reboot. A bounded recovery trial relies on boot identity, firmware, concrete method evidence and explicit reboot reason. Genuine repeated failures remain quarantined; manual disable is preserved. Unknown interface coverage stays neutral. No dependency on a particular ROM, device or Box. See [release notes](docs/ALPHA25_RELEASE.md).
 

@@ -13,6 +13,7 @@ DNSFLUSH_FILE=$RUNDIR/fcm_dns_flush.epoch
 DNSFLUSH_SCOPE_FILE=$RUNDIR/fcm_dns_flush_scope.signature
 DNSFLUSH_OUTAGE_FILE=$RUNDIR/fcm_dns_flush_outage.epoch
 DNSLATE_FILE=$RUNDIR/fcm_dns_late_attempt.epoch
+DNSLATE_FAILED_FILE=$RUNDIR/fcm_dns_late_confirmed_failed.state
 SOFT_RECONNECT_FILE=$RUNDIR/fcm_soft_reconnect.epoch
 BYPASS_UID_FILE=$RUNDIR/fcm_bypass.uid
 KEEPALIVE_FILE=$RUNDIR/fcm_keepalive.epoch
@@ -586,7 +587,58 @@ dns_late_native_recovery() {
     return 0
   fi
   log_msg "FCM guard: late native cache refresh netid=$late_id completed but GMS DNS still failed; no further flush during outage"
+  printf '%s %s %s\n' "$late_stamp" "$late_id" "$late_now" > "${DNSLATE_FAILED_FILE:-$RUNDIR/fcm_dns_late_confirmed_failed.state}"
   return 1
+}
+
+# Optional last resort. An Android cellular network recreation, unlike a
+# DNS cache flush, rebuilds DNS transport/network state. Never enabled by
+# default: it can briefly interrupt other cellular traffic. Only run on
+# a fresh, independently proven native failure after both cache attempts.
+dns_cellular_rebind_recovery() {
+  grep -Fxq 'FCM_CELLULAR_REBIND=1' "$RUNDIR/unified.conf" 2>/dev/null || return 1
+  rebind_now=$1; rebind_stamp=$2
+  [ -r "$DNSLATE_FAILED_FILE" ] || return 1
+  IFS=' ' read -r rb_stamp rb_id rb_when < "$DNSLATE_FAILED_FILE" || return 1
+  case "$rb_stamp:$rb_id:$rb_when" in *[!0-9:]*|:*|*::*|*:) return 1;; esac
+  [ "$rb_stamp" = "$rebind_stamp" ] || return 1
+  [ "$rebind_now" -ge "$rb_when" ] && [ $((rebind_now-rb_when)) -le 120 ] || return 1
+  rb_attempt=$RUNDIR/fcm_dns_cellular_rebind.state
+  rb_last_stamp=0; rb_last_time=0
+  if [ -r "$rb_attempt" ]; then
+    IFS=' ' read -r rb_last_stamp rb_last_time < "$rb_attempt" || return 1
+  fi
+  case "$rb_last_time" in ''|*[!0-9]*) return 1;; esac
+  [ "$rb_last_stamp" != "$rebind_stamp" ] && [ $((rebind_now-rb_last_time)) -ge 21600 ] || return 1
+  [ "$(settings get global mobile_data 2>/dev/null)" = 1 ] || return 1
+  [ "$(settings get global private_dns_mode 2>/dev/null)" = off ] || return 1
+  run_timeout dumpsys power 2>/dev/null | grep -Eq '^[[:space:]]*mWakefulness=(Asleep|Dozing)$' || return 1
+  rb_calls=$(run_timeout dumpsys telephony.registry 2>/dev/null | grep -E '^[[:space:]]*mCallState=')
+  [ -n "$rb_calls" ] && ! printf '%s\n' "$rb_calls" | grep -Evq '^[[:space:]]*mCallState=0$' || return 1
+  run_timeout dumpsys audio 2>/dev/null | grep -Fxq -- '- Actual mode = MODE_NORMAL' || return 1
+  run_timeout dumpsys tethering 2>/dev/null | grep -Eq '^[[:space:]]*Upstream wanted: false$' || return 1
+  rb_connect=$(run_timeout dumpsys connectivity 2>/dev/null) || return 1
+  [ -n "$rb_connect" ] && ! printf '%s\n' "$rb_connect" | grep -E 'NetworkAgentInfo.*Transports: VPN' >/dev/null || return 1
+  [ "$(dns_active_default_netid)" = "$rb_id" ] || return 1
+  [ "$(cat "$DOWN_FILE" 2>/dev/null)" = "$rebind_stamp" ] || return 1
+  [ "$(fcm_state)" = disconnected ] || return 1
+  [ -z "$(android_resolve_mtalk 2>/dev/null)" ] || return 1
+  command -v svc >/dev/null 2>&1 || return 1
+  # Consume the attempt before mutation. The subshell restores mobile data
+  # on normal exit and catchable signals; no retries or airplane-mode toggle.
+  printf '%s %s\n' "$rebind_stamp" "$rebind_now" > "$rb_attempt" || return 1
+  log_msg "FCM guard: opt-in cellular network recreation following confirmed DNS transport failure netid=$rb_id"
+  (
+    trap 'run_timeout svc data enable >/dev/null 2>&1 || true' EXIT
+    trap 'exit 1' HUP INT TERM
+    run_timeout svc data disable >/dev/null 2>&1 || exit 1
+    sleep 2
+    run_timeout svc data enable >/dev/null 2>&1 || exit 1
+    [ "$(settings get global mobile_data 2>/dev/null)" = 1 ] || exit 1
+    trap - EXIT HUP INT TERM
+  ) || { log_msg 'FCM guard: cellular recreation command failed; no recovery claimed'; return 1; }
+  log_msg 'FCM guard: cellular recreation requested; verify native DNS and FCM on next ordinary guard wake'
+  return 0
 }
 
 rate_limited_dns_log() {
@@ -689,6 +741,9 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
     flush_android_dns "$now"
     if dns_late_native_recovery "$now" "$outage"; then
       soft_reconnect_if_stalled "$now" "$outage" || true
+      exit 0
+    fi
+    if dns_cellular_rebind_recovery "$now" "$down_since"; then
       exit 0
     fi
 

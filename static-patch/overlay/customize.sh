@@ -62,7 +62,7 @@ if [ ! -f "$MODPATH/backend/current" ] && [ -r "$OLD/profile.conf" ] && [ -r "$O
 fi
 printf '%s\t%s\n' DETECT 'Installed; automatic capability detection after Android starts; base core available' > "$MODPATH/backend/state"
 set_perm_recursive "$MODPATH" 0 0 0755 0644
-for f in "$MODPATH/"*.sh "$MODPATH/bin/"*.sh "$MODPATH/bin/milletctl"; do
+for f in "$MODPATH/"*.sh "$MODPATH/bin/"*.sh "$MODPATH/bin/milletctl" "$MODPATH/bin/fcmu_alarm_wait"; do
   [ ! -f "$f" ] || set_perm "$f" 0 0 0755
 done
 # Some ROMs require a real system_lib_file label for Zygisk's arm64 .so.

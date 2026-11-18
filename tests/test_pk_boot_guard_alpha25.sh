@@ -53,6 +53,11 @@ echo 'PASS manual disable is never cleared'
 reset_state; pk_boot_pre; ID=$C; pk_boot_pre; COMPLETED=1; pk_boot_mark_safe
 FW='OEM/other/other:16/test/2:user/release-keys'; ID=$D; pk_boot_pre; check test -f "$B/powerkeeper-hook.disable"
 echo 'PASS changed firmware requires its own completed boot'
+reset_state; pk_boot_pre; ID=$C; pk_boot_pre; COMPLETED=1
+FW=files:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+pk_boot_mark_safe; ID=$D; COMPLETED=0; REASON=''; pk_boot_pre
+check absent "$B/powerkeeper-hook.disable"; check test -f "$B/pk-boot.retry-used"
+echo 'PASS early missing bootreason with matched immutable firmware and completed quarantine'
 reset_state; ID=''; pk_boot_pre; check test -f "$B/powerkeeper-hook.disable"; check absent "$B/pk-boot.pending"
 echo 'PASS missing boot identity fails closed'
 reset_state; pk_boot_pre; ID=$C; pk_boot_pre; COMPLETED=1
