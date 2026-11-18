@@ -1,0 +1,51 @@
+name: Build and publish HyperOS FCM Unified Guard alpha25
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: alpha25-build-publish
+  cancel-in-progress: false
+jobs:
+  release-alpha25:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh static-patch/overlay/*.sh static-patch/overlay/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_pk_boot_guard_alpha25.sh
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          for f in tests/test_*.py; do python3 "$f"; done
+      - name: Build and verify exact alpha24 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.24-integrated.zip
+          curl -fsSL --retry 4 "https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.24/$BASE" -o "$BASE"
+          python3 tools/package_alpha25.py "$BASE" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.25-integrated.zip
+          (cd dist && sha256sum -c *.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FCM-Unified-Guard-alpha25
+          path: dist/*
+          if-no-files-found: error
+      - name: Publish new release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.25
+          if gh release view "$TAG" >/dev/null 2>&1; then exit 1; fi
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'HyperOS FCM Unified Guard v0.4.0-alpha.25（PowerKeeper 启动隔离恢复）' --notes-file docs/ALPHA25_RELEASE.md --latest
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"

@@ -22,6 +22,14 @@ if [ "$OLD" != "$MODPATH" ] && [ -d "$OLD/backend" ]; then
   cp -a "$OLD/backend/." "$MODPATH/backend/" 2>/dev/null || true
   rm -rf "$MODPATH/backend/build.lock" "$MODPATH/backend"/.build.*
 fi
+# During an upgrade the old module may already be safely running with its
+# native runtime quarantined. Record that completed boot in the staged copy,
+# without touching the live module or claiming native coverage.
+(
+  MODDIR=$MODPATH
+  . "$MODPATH/bin/pk_boot_guard.sh"
+  pk_boot_mark_safe
+) || true
 if [ ! -f "$MODPATH/backend/current" ] && [ -r "$OLD/profile.conf" ] && [ -r "$OLD/patched/services.jar" ]; then
   (
     . "$OLD/profile.conf"
@@ -67,6 +75,6 @@ if [ -d "$MODPATH/backend" ]; then
   find "$MODPATH/backend" -path '*/patched/*.jar' -exec chcon u:object_r:system_file:s0 {} \; 2>/dev/null || true
 fi
 ui_print "- Installed. Unsupported interfaces degrade individual features, not the whole module."
-ui_print "- Magisk indicators: green=runtime checks OK; yellow=limited/adapting/reboot pending; red=observed error."
+ui_print "- Magisk indicators: green=verified checks OK; gray=unverified; yellow/red=observed abnormality."
 ui_print "- OTA automatically re-detects and rebuilds. No manual ZIP reinstall or automatic reboot."
 ui_print "- User controls disabling/uninstalling this module."

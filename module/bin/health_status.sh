@@ -122,7 +122,12 @@ fi
 # method execution, Greezer state or FCM message delivery.
 if [ -f "$MODDIR/zygisk/arm64-v8a.so" ]; then
   if [ -f "$MODDIR/backend/powerkeeper-hook.disable" ]; then
-    emit YELLOW POWERKEEPER "native runtime quarantined after unacknowledged boot; FCM guard remains enabled; $pk_probe_label"
+    pk_gate_status=$(cat "$MODDIR/backend/pk-boot.status" 2>/dev/null)
+    if [ "${pk_present:-0}" -gt 0 ]; then
+      emit YELLOW POWERKEEPER "native runtime quarantined or disabled; $pk_gate_status; FCM guard remains enabled; $pk_probe_label"
+    else
+      emit GRAY POWERKEEPER "native runtime gated; applicable OEM method not established; $pk_probe_label"
+    fi
   else
     pk_mapped=0
     pk_pid=
