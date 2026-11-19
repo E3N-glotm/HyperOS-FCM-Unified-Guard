@@ -511,15 +511,42 @@ dns_late_native_recovery() {
   late_stamp=$(cat "$DOWN_FILE" 2>/dev/null)
   case "$late_stamp" in ''|*[!0-9]*) return 1;; esac
   [ "$(cat "$DNSFLUSH_OUTAGE_FILE" 2>/dev/null)" = "$late_stamp" ] || return 1
-  [ "$(cat "$DNSLATE_FILE" 2>/dev/null)" != "$late_stamp" ] || return 1
+  late_repeat=0
+  if [ "$(cat "$DNSLATE_FILE" 2>/dev/null)" = "$late_stamp" ]; then
+    # A previous failed refresh must not permanently expire the eligibility
+    # for the opt-in recovery when a call/awake screen blocked it.
+    grep -Fxq 'FCM_CELLULAR_REBIND=1' "$RUNDIR/unified.conf" 2>/dev/null || return 1
+    late_failed=${DNSLATE_FAILED_FILE:-$RUNDIR/fcm_dns_late_confirmed_failed.state}
+    IFS=' ' read -r late_old_stamp late_old_id late_old_when < "$late_failed" || return 1
+    case "$late_old_stamp:$late_old_id:$late_old_when" in *[!0-9:]*|:*|*::*|*:) return 1;; esac
+    [ "$late_old_stamp" = "$late_stamp" ] || return 1
+    [ $((late_now-late_old_when)) -ge 900 ] || return 1
+    late_attempt="$RUNDIR/fcm_dns_late_reproof.epoch"
+    late_previous=$(cat "$late_attempt" 2>/dev/null)
+    case "$late_previous" in ''|*[!0-9]*) late_previous=0;; esac
+    [ $((late_now-late_previous)) -ge 900 ] || return 1
+    printf '%s\n' "$late_now" > "$late_attempt" || return 1
+    late_repeat=1
+  fi
   late_first=$(cat "$DNSFLUSH_FILE" 2>/dev/null)
   case "$late_first" in ''|*[!0-9]*) return 1;; esac
   [ $((late_now-late_first)) -ge 300 ] 2>/dev/null || return 1
   late_id=$(dns_active_default_netid) || return 1
   [ "$(cat "$DNSFLUSH_SCOPE_FILE" 2>/dev/null)" = "$late_stamp:$late_id" ] || return 1
 
-  # Spend exactly one bounded observation on this outage, not every wake.
-  printf '%s\n' "$late_stamp" > "$DNSLATE_FILE"
+  # Spend a bounded observation on this outage; a repeat only refreshes
+  # evidence, never flushes again.
+  [ "$late_repeat" = 0 ] || [ "$late_id" = "$late_old_id" ] || return 1
+  if [ "$late_repeat" = 0 ]; then
+    late_probe="$RUNDIR/fcm_dns_late_probe.state"
+    late_probe_stamp=0; late_probe_when=0
+    if [ -r "$late_probe" ]; then
+      IFS=' ' read -r late_probe_stamp late_probe_when < "$late_probe" || return 1
+    fi
+    case "$late_probe_when" in ''|*[!0-9]*) return 1;; esac
+    [ "$late_probe_stamp" != "$late_stamp" ] || [ $((late_now-late_probe_when)) -ge 900 ] || return 1
+    printf '%s %s\n' "$late_stamp" "$late_now" > "$late_probe" || return 1
+  fi
   late_diag=$(run_timeout dumpsys dnsresolver 2>/dev/null | awk -v id="$late_id" '
     /^NetId:/ { if (found) exit; if ($2 == id) found=1 }
     found { print }
@@ -578,7 +605,15 @@ dns_late_native_recovery() {
   [ "$(fcm_state)" = disconnected ] || return 1
   [ -z "$(android_resolve_mtalk 2>/dev/null)" ] || return 1
   [ "$(dns_active_default_netid)" = "$late_id" ] || return 1
+  if [ "$late_repeat" = 1 ]; then
+    printf '%s %s %s\n' "$late_stamp" "$late_id" "$late_now" > "$late_failed" || return 1
+    log_msg "FCM guard: refreshed confirmed native DNS failure; opt-in recovery remains eligible netid=$late_id"
+    return 1
+  fi
   dnsresolver_binder_ready || return 1
+  # Consume the flush only once the full evidence gates pass. Unsupported
+  # or failed observations do not falsely claim a completed refresh.
+  printf '%s\n' "$late_stamp" > "$DNSLATE_FILE" || return 1
   dnsresolver_binder_flush_one "$late_id" || return 1
   late_ip=$(android_resolve_mtalk 2>/dev/null || true)
   if [ -n "$late_ip" ]; then
@@ -629,11 +664,19 @@ dns_cellular_rebind_recovery() {
   printf '%s %s\n' "$rebind_stamp" "$rebind_now" > "$rb_attempt" || return 1
   log_msg "FCM guard: opt-in cellular network recreation following confirmed DNS transport failure netid=$rb_id"
   (
-    trap 'run_timeout svc data enable >/dev/null 2>&1 || true' EXIT
+    # Capture Binder output through a pipe (Android 17 may reject regular
+    # file descriptors). A zero exit status does not prove a state change.
+    rb_svc() {
+      rb_output=$(run_timeout svc data "$1" 2>&1) || return 1
+      case "$rb_output" in *'Failure calling service'*|*'Failed transaction'*|*'Exception'*|*'Permission Denial'*) return 1;; esac
+    }
+    trap 'rb_svc enable || true' EXIT
     trap 'exit 1' HUP INT TERM
-    run_timeout svc data disable >/dev/null 2>&1 || exit 1
+    rb_svc disable || exit 1
     sleep 2
-    run_timeout svc data enable >/dev/null 2>&1 || exit 1
+    [ "$(settings get global mobile_data 2>/dev/null)" = 0 ] || exit 1
+    rb_svc enable || exit 1
+    sleep 2
     [ "$(settings get global mobile_data 2>/dev/null)" = 1 ] || exit 1
     trap - EXIT HUP INT TERM
   ) || { log_msg 'FCM guard: cellular recreation command failed; no recovery claimed'; return 1; }

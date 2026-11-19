@@ -62,7 +62,7 @@ reset() {
   printf '1000\n' >"$DNSFLUSH_OUTAGE_FILE"
   printf '1000:409\n' >"$DNSFLUSH_SCOPE_FILE"
   printf '1060\n' >"$DNSFLUSH_FILE"
-  rm -f "$DNSLATE_FILE" "$DNSOK_FILE" "$RUNDIR/flushed" "$RUNDIR/probes"
+  rm -f "$DNSLATE_FILE" "$DNSOK_FILE" "$RUNDIR/flushed" "$RUNDIR/probes" "$RUNDIR/fcm_dns_late_probe.state" "$RUNDIR/fcm_dns_late_reproof.epoch" "$RUNDIR/fcm_dns_late_confirmed_failed.state" "$RUNDIR/unified.conf"
   netid=409; state=disconnected; transport=CELLULAR; privacy=OFF; probe=yes; recovers=yes; binder=yes; box=absent; already_dns=no
 }
 no_flush() {
@@ -90,6 +90,13 @@ test ! -e "$DNSOK_FILE"
 if dns_late_native_recovery 1400 400; then exit 7; fi
 test "$(wc -l < "$RUNDIR/flushed")" -eq 1
 echo PASS_failed_flush_no_false_recovery
+printf '%s\n' 'FCM_CELLULAR_REBIND=1' > "$RUNDIR/unified.conf"
+if dns_late_native_recovery 2260 1260; then exit 9; fi
+test "$(cat "$RUNDIR/fcm_dns_late_confirmed_failed.state")" = '1000 409 2260'
+test "$(wc -l < "$RUNDIR/flushed")" -eq 1
+if dns_late_native_recovery 2300 1300; then exit 10; fi
+test "$(cat "$RUNDIR/fcm_dns_late_confirmed_failed.state")" = '1000 409 2260'
+echo PASS_reproof_without_second_flush
 reset; no_flush 1359 359; echo PASS_wait_after_initial_flush
 reset; already_dns=yes; no_flush 1360 360; echo PASS_native_dns_already_recovered
 reset; binder=no; no_flush 1360 360; echo PASS_unverified_Binder
