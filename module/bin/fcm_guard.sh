@@ -626,6 +626,19 @@ dns_late_native_recovery() {
   return 1
 }
 
+# Hold a separate bounded lock only for the actual data transaction.
+# The maintenance wakelock can have expired by the time DNS proof completes.
+rb_wake_acquire() {
+  rb_wake_tag="fcmu_dns_rebind_$$"
+  [ -w /sys/power/wake_lock ] && [ -w /sys/power/wake_unlock ] || return 1
+  printf '%s %s\n' "$rb_wake_tag" 180000000000 > /sys/power/wake_lock 2>/dev/null
+}
+
+rb_wake_release() {
+  [ -n "$rb_wake_tag" ] || return 0
+  printf '%s\n' "$rb_wake_tag" > /sys/power/wake_unlock 2>/dev/null || true
+}
+
 # Optional last resort. An Android cellular network recreation, unlike a
 # DNS cache flush, rebuilds DNS transport/network state. Never enabled by
 # default: it can briefly interrupt other cellular traffic. Only run on
@@ -638,49 +651,145 @@ dns_cellular_rebind_recovery() {
   case "$rb_stamp:$rb_id:$rb_when" in *[!0-9:]*|:*|*::*|*:) return 1;; esac
   [ "$rb_stamp" = "$rebind_stamp" ] || return 1
   [ "$rebind_now" -ge "$rb_when" ] && [ $((rebind_now-rb_when)) -le 120 ] || return 1
+  # Only log a gate once per fresh proof/reason; no additional wakeups.
+  rb_skip() {
+    rb_gate="$rb_stamp:$rb_when:$1"
+    rb_gate_file="$RUNDIR/fcm_dns_cellular_rebind.gate"
+    if [ "$(cat "$rb_gate_file" 2>/dev/null)" != "$rb_gate" ]; then
+      printf '%s\n' "$rb_gate" > "$rb_gate_file"
+      log_msg "FCM guard: cellular recreation deferred netid=$rb_id gate=$1"
+    fi
+    return 1
+  }
+  # Some dual-SIM ROMs maintain mobile_data0/mobile_data1 and leave the
+  # legacy unsuffixed global key at zero even when both slots are enabled.
+  # Prefer the complete per-slot snapshot when available. Reject malformed
+  # or duplicate keys, and never change asymmetric SIM preferences.
+  rb_data_snapshot() {
+    rb_settings=$(run_timeout settings list global 2>/dev/null) || return 1
+    printf '%s\n' "$rb_settings" | awk -F= '
+      $1 ~ /^mobile_data[0-9]+$/ || $1 == "mobile_data" {
+        if (NF != 2 || $2 !~ /^[01]$/ || seen[$1]++) { bad=1; next }
+        if ($1 == "mobile_data") { global=$0; next }
+        slots[++n]=$0
+      }
+      END {
+        if (bad || (!n && global == "")) exit 1
+        if (n) { for (i=1;i<=n;i++) print slots[i] } else print global
+      }
+    ' | sort
+  }
+  rb_poll_data() {
+    rb_expected=$1
+    rb_poll=0
+    while [ "$rb_poll" -lt 5 ]; do
+      [ "$(rb_data_snapshot)" = "$rb_expected" ] && return 0
+      rb_poll=$((rb_poll+1))
+      sleep 1
+    done
+    return 1
+  }
+  rb_active_sub() {
+    rb_sub_dump=$(run_timeout dumpsys isub 2>/dev/null) || return 1
+    printf '%s\n' "$rb_sub_dump" | awk -F= '
+      /^[[:space:]]*defaultDataSubId=/ { if ($2 !~ /^[0-9]+$/ || d++) bad=1; else def=$2 }
+      /^[[:space:]]*activeDataSubId=/ { if ($2 !~ /^[0-9]+$/ || a++) bad=1; else act=$2 }
+      END { if (!bad && d==1 && a==1 && def==act) print def; else exit 1 }
+    '
+  }
   rb_attempt=$RUNDIR/fcm_dns_cellular_rebind.state
   rb_last_stamp=0; rb_last_time=0
   if [ -r "$rb_attempt" ]; then
     IFS=' ' read -r rb_last_stamp rb_last_time < "$rb_attempt" || return 1
   fi
   case "$rb_last_time" in ''|*[!0-9]*) return 1;; esac
-  [ "$rb_last_stamp" != "$rebind_stamp" ] && [ $((rebind_now-rb_last_time)) -ge 21600 ] || return 1
-  [ "$(settings get global mobile_data 2>/dev/null)" = 1 ] || return 1
-  [ "$(settings get global private_dns_mode 2>/dev/null)" = off ] || return 1
-  run_timeout dumpsys power 2>/dev/null | grep -Eq '^[[:space:]]*mWakefulness=(Asleep|Dozing)$' || return 1
+  [ "$rb_last_stamp" != "$rebind_stamp" ] && [ $((rebind_now-rb_last_time)) -ge 21600 ] || { rb_skip cooldown; return 1; }
+  rb_before=$(rb_data_snapshot)
+  [ -n "$rb_before" ] || { rb_skip data-state-unavailable; return 1; }
+  if printf '%s\n' "$rb_before" | grep -q '=0$'; then
+    rb_skip data-disabled-or-asymmetric; return 1
+  fi
+  [ "$(settings get global private_dns_mode 2>/dev/null)" = off ] || { rb_skip private-dns; return 1; }
+  run_timeout dumpsys power 2>/dev/null | grep -Eq '^[[:space:]]*mWakefulness=(Asleep|Dozing)$' || { rb_skip screen-or-power-state; return 1; }
   rb_calls=$(run_timeout dumpsys telephony.registry 2>/dev/null | grep -E '^[[:space:]]*mCallState=')
-  [ -n "$rb_calls" ] && ! printf '%s\n' "$rb_calls" | grep -Evq '^[[:space:]]*mCallState=0$' || return 1
-  run_timeout dumpsys audio 2>/dev/null | grep -Fxq -- '- Actual mode = MODE_NORMAL' || return 1
-  run_timeout dumpsys tethering 2>/dev/null | grep -Eq '^[[:space:]]*Upstream wanted: false$' || return 1
-  rb_connect=$(run_timeout dumpsys connectivity 2>/dev/null) || return 1
-  [ -n "$rb_connect" ] && ! printf '%s\n' "$rb_connect" | grep -E 'NetworkAgentInfo.*Transports: VPN' >/dev/null || return 1
-  [ "$(dns_active_default_netid)" = "$rb_id" ] || return 1
-  [ "$(cat "$DOWN_FILE" 2>/dev/null)" = "$rebind_stamp" ] || return 1
-  [ "$(fcm_state)" = disconnected ] || return 1
-  [ -z "$(android_resolve_mtalk 2>/dev/null)" ] || return 1
-  command -v svc >/dev/null 2>&1 || return 1
-  # Consume the attempt before mutation. The subshell restores mobile data
-  # on normal exit and catchable signals; no retries or airplane-mode toggle.
-  printf '%s %s\n' "$rebind_stamp" "$rebind_now" > "$rb_attempt" || return 1
-  log_msg "FCM guard: opt-in cellular network recreation following confirmed DNS transport failure netid=$rb_id"
+  [ -n "$rb_calls" ] && ! printf '%s\n' "$rb_calls" | grep -Evq '^[[:space:]]*mCallState=0$' || { rb_skip call-state; return 1; }
+  run_timeout dumpsys audio 2>/dev/null | grep -Fxq -- '- Actual mode = MODE_NORMAL' || { rb_skip audio-mode; return 1; }
+  run_timeout dumpsys tethering 2>/dev/null | grep -Eq '^[[:space:]]*Upstream wanted: false$' || { rb_skip tethering; return 1; }
+  rb_connect=$(run_timeout dumpsys connectivity 2>/dev/null) || { rb_skip connectivity-unavailable; return 1; }
+  [ -n "$rb_connect" ] && ! printf '%s\n' "$rb_connect" | grep -E 'NetworkAgentInfo.*Transports: VPN' >/dev/null || { rb_skip vpn-or-unknown; return 1; }
+  # Network identity must still describe a connected cellular Internet
+  # bearer, not Wi-Fi, IMS or a stale resolver cache.
+  rb_net_line=$(printf '%s\n' "$rb_connect" | grep -F "NetworkAgentInfo{network{$rb_id}" | grep -E 'Transports: CELLULAR.*Capabilities:.*INTERNET') || { rb_skip not-cellular-internet; return 1; }
+  rb_net_sub=$(printf '%s\n' "$rb_net_line" | sed -n 's/.*SubscriptionIds: {\([0-9][0-9]*\)}.*/\1/p')
+  rb_sub_before=$(rb_active_sub) || { rb_skip subscription-unavailable; return 1; }
+  [ -n "$rb_net_sub" ] && [ "$rb_net_sub" = "$rb_sub_before" ] || { rb_skip subscription-mismatch; return 1; }
+  [ "$(dns_active_default_netid)" = "$rb_id" ] || { rb_skip network-changed; return 1; }
+  [ "$(cat "$DOWN_FILE" 2>/dev/null)" = "$rebind_stamp" ] || { rb_skip outage-changed; return 1; }
+  [ "$(fcm_state)" = disconnected ] || { rb_skip fcm-not-disconnected; return 1; }
+  [ -z "$(android_resolve_mtalk 2>/dev/null)" ] || { rb_skip dns-recovered; return 1; }
+  # Prefer the supported phone shell interface. Do not fall through to a
+  # different mutating command after an ambiguous Binder response.
+  rb_backend=svc
+  rb_help=$(run_timeout cmd phone data help 2>/dev/null || true)
+  if printf '%s\n' "$rb_help" | grep -q 'data enable:' && printf '%s\n' "$rb_help" | grep -q 'data disable:'; then
+    rb_backend=phone
+  else
+    command -v svc >/dev/null 2>&1 || { rb_skip no-data-control; return 1; }
+  fi
+  [ "$(rb_data_snapshot)" = "$rb_before" ] || { rb_skip data-state-changed; return 1; }
+  [ "$(rb_active_sub)" = "$rb_sub_before" ] || { rb_skip subscription-changed; return 1; }
+  [ "$(dns_active_default_netid)" = "$rb_id" ] || { rb_skip network-changed; return 1; }
+  rb_off=$(printf '%s\n' "$rb_before" | sed 's/=1$/=0/')
+  # Consume the attempt only after the scoped lock is held.
   (
     # Capture Binder output through a pipe (Android 17 may reject regular
     # file descriptors). A zero exit status does not prove a state change.
     rb_svc() {
-      rb_output=$(run_timeout svc data "$1" 2>&1) || return 1
+      if [ "$rb_backend" = phone ]; then
+        rb_output=$(run_timeout cmd phone data "$1" 2>&1) || return 1
+      else
+        rb_output=$(run_timeout svc data "$1" 2>&1) || return 1
+      fi
       case "$rb_output" in *'Failure calling service'*|*'Failed transaction'*|*'Exception'*|*'Permission Denial'*) return 1;; esac
     }
-    trap 'rb_svc enable || true' EXIT
+    rb_wake_acquire || { rb_skip wakelock-unavailable; exit 1; }
+    rb_mutating=0
+    rb_restore() {
+      if [ "$rb_mutating" = 1 ]; then
+        if rb_svc enable && rb_poll_data "$rb_before"; then
+          log_msg 'FCM guard: cellular recovery aborted; original data preferences restored'
+        else
+          log_msg 'FCM guard: cellular recovery aborted; data preference restoration NOT verified'
+        fi
+      fi
+      rb_wake_release
+    }
+    trap rb_restore EXIT
     trap 'exit 1' HUP INT TERM
+    printf '%s %s\n' "$rebind_stamp" "$rebind_now" > "$rb_attempt" || exit 1
+    log_msg "FCM guard: opt-in cellular network recreation following confirmed DNS transport failure netid=$rb_id backend=$rb_backend"
+    rb_mutating=1
     rb_svc disable || exit 1
-    sleep 2
-    [ "$(settings get global mobile_data 2>/dev/null)" = 0 ] || exit 1
+    rb_poll_data "$rb_off" || exit 1
+    # Wait for teardown, not merely for a settings write. Always restore
+    # on failure; neither successful Binder status nor state alone proves
+    # the cellular network has actually been recreated.
+    rb_teardown=0
+    while [ "$rb_teardown" -lt 5 ]; do
+      rb_current=$(run_timeout dumpsys connectivity 2>/dev/null) || exit 1
+      [ -n "$rb_current" ] || exit 1
+      if ! printf '%s\n' "$rb_current" | grep -Fq "NetworkAgentInfo{network{$rb_id}"; then break; fi
+      rb_teardown=$((rb_teardown+1))
+      sleep 1
+    done
+    [ "$rb_teardown" -lt 5 ] || exit 1
     rb_svc enable || exit 1
-    sleep 2
-    [ "$(settings get global mobile_data 2>/dev/null)" = 1 ] || exit 1
+    rb_poll_data "$rb_before" || exit 1
+    [ "$(rb_active_sub)" = "$rb_sub_before" ] || exit 1
     trap - EXIT HUP INT TERM
+    rb_wake_release
   ) || { log_msg 'FCM guard: cellular recreation command failed; no recovery claimed'; return 1; }
-  log_msg 'FCM guard: cellular recreation requested; verify native DNS and FCM on next ordinary guard wake'
+  log_msg 'FCM guard: original cellular network removed and data preferences restored; verify native DNS and FCM on next ordinary guard wake'
   return 0
 }
 
