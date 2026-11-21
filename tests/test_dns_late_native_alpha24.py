@@ -32,6 +32,10 @@ DNSLATE_FILE=$RUNDIR/late
 DNSOK_FILE=$RUNDIR/ok
 BB=mockbb
 IPTABLES_WAIT_SECONDS=5
+printf() {
+  for arg do [ "${#arg}" -lt 131072 ] || return 126; done
+  command printf "$@"
+}
 mockbb() {
   printf '%s\n' "$*" >> "$RUNDIR/probes"
   [ "$probe" = yes ] || return 1
@@ -46,7 +50,11 @@ iptables() {
 }
 dns_active_default_netid() { echo "$netid"; }
 run_timeout() {
-  printf 'NetId: 409\n  DNS servers: # IP\n    61.139.2.69 (64, 1)\n    218.6.200.139 (7, 1)\n  Private DNS mode: %s\n  TransportType: %s\nNetId: 407\n' "$privacy" "$transport"
+  printf 'NetId: 409\n  DNS servers: # IP\n    61.139.2.69 (64, 1)\n    218.6.200.139 (7, 1)\n  Private DNS mode: %s\n  TransportType: %s\n' "$privacy" "$transport"
+  if [ "${large_diag:-no}" = yes ]; then
+    awk 'BEGIN {for (i=0;i<2500;i++) print "extended resolver statistics with a long irrelevant payload 012345678901234567890123456789"}'
+  fi
+  echo 'NetId: 407'
 }
 fcm_state() { echo "$state"; }
 android_resolve_mtalk() {
@@ -78,6 +86,10 @@ if dns_late_native_recovery 1400 400; then exit 5; fi
 test "$(wc -l < "$RUNDIR/flushed")" -eq 1
 test -s "$RUNDIR/dns-late-native.latest.txt"
 echo PASS_recovery_and_single_shot
+reset; large_diag=yes; dns_late_native_recovery 1360 360
+test "$(cat "$RUNDIR/flushed")" = 409
+test "$(wc -c < "$RUNDIR/dns-late-native.latest.txt")" -gt 131072
+large_diag=no; echo PASS_large_resolver_dump
 reset; state=connected; no_flush 1360 360; echo PASS_connected_no_flush
 reset; transport=WIFI; no_flush 1360 360; echo PASS_wifi_no_flush
 reset; netid=410; no_flush 1360 360; echo PASS_changed_netid_no_flush

@@ -85,7 +85,7 @@ release_guard_lock() {
 fcm_rule_count() {
   rule_uid=$1
   rules=$(iptables -w "$IPTABLES_WAIT_SECONDS" -t mangle -S BOX_LOCAL 2>/dev/null) || return 1
-  printf '%s\n' "$rules" | awk -v uid="$rule_uid" '
+  awk -v uid="$rule_uid" '
     $1 == "-A" && $2 == "BOX_LOCAL" {
       owner=0; port=0; ret=0
       for (i=1; i<=NF; i++) {
@@ -96,7 +96,9 @@ fcm_rule_count() {
       if (owner && port && ret) count++
     }
     END { print count+0 }
-  '
+  ' <<EOF
+$rules
+EOF
 }
 
 delete_fcm_rules_for_uid() {
@@ -551,16 +553,26 @@ dns_late_native_recovery() {
     /^NetId:/ { if (found) exit; if ($2 == id) found=1 }
     found { print }
   ')
-  [ -n "$late_diag" ] || return 1
-  printf '%s\n' "$late_diag" | grep -q 'TransportType: CELLULAR' || return 1
-  printf '%s\n' "$late_diag" | grep -q 'Private DNS mode: OFF' || return 1
+  case "$late_diag" in '') return 1;; esac
+  grep -q 'TransportType: CELLULAR' <<EOF || return 1
+$late_diag
+EOF
+  grep -q 'Private DNS mode: OFF' <<EOF || return 1
+$late_diag
+EOF
   late_snapshot="$RUNDIR/dns-late-native.latest.txt"
-  { date; printf 'outage=%s netid=%s\n' "$late_stamp" "$late_id"; printf '%s\n' "$late_diag"; } > "$late_snapshot"
-  late_servers=$(printf '%s\n' "$late_diag" | awk '
+  { date; printf 'outage=%s netid=%s\n' "$late_stamp" "$late_id"; cat <<EOF
+$late_diag
+EOF
+  } > "$late_snapshot"
+  late_servers=$(awk '
     /^  DNS servers:/ { collecting=1; next }
     collecting && /^    [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ / { print $1; next }
     collecting { exit }
-  ' | head -n 2)
+  ' <<EOF | head -n 2
+$late_diag
+EOF
+  )
   [ -n "$late_servers" ] || return 1
 
   # Probe the actual configured IPv4 resolver, not an unrelated public
@@ -570,11 +582,13 @@ dns_late_native_recovery() {
   late_direct=0
   if iptables -w "$IPTABLES_WAIT_SECONDS" -t mangle -S BOX_LOCAL >/dev/null 2>&1; then
     late_rules=$(iptables -w "$IPTABLES_WAIT_SECONDS" -t mangle -S BOX_LOCAL 2>/dev/null) || return 1
-    printf '%s\n' "$late_rules" | awk '
+    awk '
       /--uid-owner 0 --gid-owner 3005 -j RETURN/ { if (!mark) bypass=1 }
       /--dport 53.*MARK/ { mark=1 }
       END { exit !(bypass && mark) }
-    ' || return 1
+    ' <<EOF || return 1
+$late_rules
+EOF
     late_direct=1
   fi
   late_answer_ok=0
@@ -667,7 +681,7 @@ dns_cellular_rebind_recovery() {
   # or duplicate keys, and never change asymmetric SIM preferences.
   rb_data_snapshot() {
     rb_settings=$(run_timeout settings list global 2>/dev/null) || return 1
-    printf '%s\n' "$rb_settings" | awk -F= '
+    awk -F= '
       $1 ~ /^mobile_data[0-9]+$/ || $1 == "mobile_data" {
         if (NF != 2 || $2 !~ /^[01]$/ || seen[$1]++) { bad=1; next }
         if ($1 == "mobile_data") { global=$0; next }
@@ -677,7 +691,9 @@ dns_cellular_rebind_recovery() {
         if (bad || (!n && global == "")) exit 1
         if (n) { for (i=1;i<=n;i++) print slots[i] } else print global
       }
-    ' | sort
+    ' <<EOF | sort
+$rb_settings
+EOF
   }
   rb_poll_data() {
     rb_expected=$1
@@ -691,11 +707,13 @@ dns_cellular_rebind_recovery() {
   }
   rb_active_sub() {
     rb_sub_dump=$(run_timeout dumpsys isub 2>/dev/null) || return 1
-    printf '%s\n' "$rb_sub_dump" | awk -F= '
+    awk -F= '
       /^[[:space:]]*defaultDataSubId=/ { if ($2 !~ /^[0-9]+$/ || d++) bad=1; else def=$2 }
       /^[[:space:]]*activeDataSubId=/ { if ($2 !~ /^[0-9]+$/ || a++) bad=1; else act=$2 }
       END { if (!bad && d==1 && a==1 && def==act) print def; else exit 1 }
-    '
+    ' <<EOF
+$rb_sub_dump
+EOF
   }
   rb_attempt=$RUNDIR/fcm_dns_cellular_rebind.state
   rb_last_stamp=0; rb_last_time=0
@@ -716,11 +734,40 @@ dns_cellular_rebind_recovery() {
   run_timeout dumpsys audio 2>/dev/null | grep -Fxq -- '- Actual mode = MODE_NORMAL' || { rb_skip audio-mode; return 1; }
   run_timeout dumpsys tethering 2>/dev/null | grep -Eq '^[[:space:]]*Upstream wanted: false$' || { rb_skip tethering; return 1; }
   rb_connect=$(run_timeout dumpsys connectivity 2>/dev/null) || { rb_skip connectivity-unavailable; return 1; }
-  [ -n "$rb_connect" ] && ! printf '%s\n' "$rb_connect" | grep -E 'NetworkAgentInfo.*Transports: VPN' >/dev/null || { rb_skip vpn-or-unknown; return 1; }
-  # Network identity must still describe a connected cellular Internet
-  # bearer, not Wi-Fi, IMS or a stale resolver cache.
-  rb_net_line=$(printf '%s\n' "$rb_connect" | grep -F "NetworkAgentInfo{network{$rb_id}" | grep -E 'Transports: CELLULAR.*Capabilities:.*INTERNET') || { rb_skip not-cellular-internet; return 1; }
-  rb_net_sub=$(printf '%s\n' "$rb_net_line" | sed -n 's/.*SubscriptionIds: {\([0-9][0-9]*\)}.*/\1/p')
+  # Android uses an external printf; dumpsys often exceeds Linux MAX_ARG_STRLEN
+  # (observed 187778 bytes). Feed the snapshot via stdin, never argv. Otherwise
+  # VPN detection fails open and the cellular/teardown gates misclassify it.
+  rb_net_summary=$(awk -v id="$rb_id" '
+    $1 == "Active" && $2 == "default" && $3 == "network:" { defaults++; def=$4 }
+    /NetworkAgentInfo\{/ {
+      if ($0 ~ /Transports: [^ ]*VPN([&|, ]|$)/) vpn=1
+      if (index($0, "NetworkAgentInfo{network{" id "}")) {
+        rows++
+        if ($0 ~ /Transports: CELLULAR[[:space:]]+Capabilities: /) {
+          cap=$0; sub(/^.*Transports: CELLULAR[[:space:]]+Capabilities: /, "", cap); sub(/[[:space:]].*$/, "", cap)
+          if (cap ~ /(^|&)INTERNET(&|$)/) internet=1
+        }
+        if (match($0, /SubscriptionIds: \{[0-9]+\}/)) {
+          sid=substr($0, RSTART, RLENGTH); sub(/^SubscriptionIds: \{/, "", sid); sub(/\}$/, "", sid)
+        }
+      }
+    }
+    END {
+      if (vpn) print "vpn-or-unknown"
+      else if (defaults != 1 || def != id) print "default-network-unverified"
+      else if (rows != 1 || !internet) print "not-cellular-internet"
+      else if (sid == "") print "subscription-unavailable"
+      else print "ok " sid
+    }
+  ' <<EOF
+$rb_connect
+EOF
+  ) || { rb_skip connectivity-parse-failed; return 1; }
+  case "$rb_net_summary" in
+    'ok '*) rb_net_sub=${rb_net_summary#ok };;
+    vpn-or-unknown|default-network-unverified|not-cellular-internet|subscription-unavailable) rb_skip "$rb_net_summary"; return 1;;
+    *) rb_skip connectivity-parse-failed; return 1;;
+  esac
   rb_sub_before=$(rb_active_sub) || { rb_skip subscription-unavailable; return 1; }
   [ -n "$rb_net_sub" ] && [ "$rb_net_sub" = "$rb_sub_before" ] || { rb_skip subscription-mismatch; return 1; }
   [ "$(dns_active_default_netid)" = "$rb_id" ] || { rb_skip network-changed; return 1; }
@@ -777,8 +824,19 @@ dns_cellular_rebind_recovery() {
     rb_teardown=0
     while [ "$rb_teardown" -lt 5 ]; do
       rb_current=$(run_timeout dumpsys connectivity 2>/dev/null) || exit 1
-      [ -n "$rb_current" ] || exit 1
-      if ! printf '%s\n' "$rb_current" | grep -Fq "NetworkAgentInfo{network{$rb_id}"; then break; fi
+      rb_teardown_state=$(awk -v id="$rb_id" '
+        $1=="Active" && $2=="default" && $3=="network:" { defaults++; def=$4 }
+        index($0,"NetworkAgentInfo{network{" id "}") { present=1 }
+        END {
+          if (present || def==id) print "present"
+          else if (defaults==1 && (def ~ /^[0-9]+$/ || def=="none" || def=="null" || def=="-1")) print "absent"
+          else print "unknown"
+        }
+      ' <<EOF
+$rb_current
+EOF
+      ) || exit 1
+      case "$rb_teardown_state" in absent) break;; present) :;; *) exit 1;; esac
       rb_teardown=$((rb_teardown+1))
       sleep 1
     done
