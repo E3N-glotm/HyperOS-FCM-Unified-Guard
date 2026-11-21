@@ -2,13 +2,17 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.26（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
+单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.30（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.26/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.26-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.26/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.26-integrated.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.30/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.30-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.30/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.30-integrated.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
-## v0.4.0-alpha.26：启动兼容与内核唤醒修复（Latest）
+## v0.4.0-alpha.30：FCM 假在线与长连接保活修复（Latest）
+
+针对显示在线但消息集中延迟投递的问题，仅对经过 GMS UID、进程、实际远端地址、端口及 socket inode 核验的 MCS TCP 连接启用内核 keepalive。不主动发送 GMS 心跳、不重启代理或 GMS、不修改全局 TCP 参数；不支持的设备保留原有行为。详见 [发布说明](docs/ALPHA30_RELEASE.md)。
+
+## v0.4.0-alpha.26：启动兼容与内核唤醒修复
 
 修复启动早期固件证据校验与 alarm helper 安装执行权限。蜂窝 DNS 长断连最后一级网络重建为显式可选、默认关闭，不宣称已验证真实故障恢复。详见 [发布说明](docs/ALPHA26_RELEASE.md)。
 

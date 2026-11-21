@@ -166,13 +166,18 @@ ensure_fcm_uid_bypass() {
 }
 
 fcm_state() {
-  line=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
-    | grep -m1 'Is client connected:' || true)
+  # Retain only two short lines; never pass a full dumpsys as an argument.
+  snapshot=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
+    | awk '/^[[:space:]]*connected=/ && !ep++ {print}
+           /Is client connected:/ && !st++ {print}' || true)
+  line=$(printf '%s\n' "$snapshot" | grep -m1 'Is client connected:' || true)
   case "$line" in
     *true*)  observed_state=connected ;;
     *false*) observed_state=disconnected ;;
     *)       observed_state=unknown ;;
   esac
+  printf '%s\n' "$snapshot" | awk '/^[[:space:]]*connected=/ {sub(/^[[:space:]]*/, ""); print; exit}' \
+    > "$RUNDIR/fcm-observed.endpoint"
   printf '%s %s\n' "$observed_state" "${now:-0}" > "$RUNDIR/fcm-observed.state"
   echo "$observed_state"
 }
@@ -183,6 +188,12 @@ connected_keepalive() {
   # changed the MCS endpoint. This is disruption, NOT evidence of stale MCS.
   # Google Play services already schedules its own heartbeat (~25 min).
   KEEPALIVE_PROBED=0
+  # alpha30: scope kernel-level TCP probes to the verified MCS socket.
+  # No forced GMS heartbeat, no extra wakeup worker, no global TCP changes.
+  if [ -x "$MODDIR/bin/fcmu_socket_keepalive" ] && [ -r "$MODDIR/bin/fcm_socket_keepalive.sh" ]; then
+    . "$MODDIR/bin/fcm_socket_keepalive.sh"
+    fcm_socket_keepalive "$1" || true
+  fi
   ka_now=$1
   ka_last=$(cat "$KEEPALIVE_FILE" 2>/dev/null)
   case "$ka_last" in ''|*[!0-9]*) ka_last=0;; esac

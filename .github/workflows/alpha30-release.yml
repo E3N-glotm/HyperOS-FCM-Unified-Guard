@@ -1,0 +1,58 @@
+name: Build and publish HyperOS FCM Unified Guard alpha30
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: alpha30-build-publish
+  cancel-in-progress: false
+jobs:
+  release-alpha30:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh static-patch/overlay/*.sh static-patch/overlay/bin/*.sh; do sh -n "$f"; done
+          sh tests/test_pk_boot_guard_alpha25.sh
+          sh tests/test_fcm_uid_route_alpha12.sh
+          sh tests/test_fcm_dns_recovery_alpha11.sh
+          sh tests/test_fcm_guard_policy.sh
+          sh tests/test_fcm_soft_reconnect_cellular.sh
+          sh tests/test_fcm_runtime.sh
+          sh tests/test_gtalk_single_event_worker.sh
+          sh tests/test_worker_identity.sh
+          sh tests/test_settings_fail_closed.sh
+          for f in tests/test_*.py; do python3 "$f"; done
+      - name: Compile ARM64 Android socket helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [ -z "$NDK" ]; then NDK="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"; fi
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang" -Os -Wall -Wextra -Werror -ffunction-sections -fdata-sections -Wl,--gc-sections -s -o /tmp/fcmu_socket_keepalive native/fcmu_socket_keepalive.c
+      - name: Build verified alpha29 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.29-integrated.zip
+          curl -fsSL --retry 4 "https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.29/$BASE" -o "$BASE"
+          python3 tools/package_alpha30.py "$BASE" dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.30-integrated.zip /tmp/fcmu_socket_keepalive
+          (cd dist && sha256sum -c *.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FCM-Unified-Guard-alpha30
+          path: dist/*
+          if-no-files-found: error
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.30
+          if gh release view "$TAG" >/dev/null 2>&1; then exit 1; fi
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'HyperOS FCM Unified Guard v0.4.0-alpha.30（FCM 假在线修复）' --notes-file docs/ALPHA30_RELEASE.md --latest
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
