@@ -2,13 +2,17 @@
 
 **简体中文 | [English](README_EN.md)**
 
-单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.30（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
+单个 Magisk 模块，集成 Millet/FCM 基础守护、按系统接口生成的自适应框架策略，以及 **PowerKeeper 专项 Zygisk 原生 Hook**。当前推荐版本 **v0.4.0-alpha.31（Latest）**：不依赖 FCM Live APK 或 LSPosed；PowerKeeper 原生功能需要 ARM64 及可用的 Zygisk/Zygisk Next，缺失时基础守护与静态策略仍独立运行。
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.30/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.30-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.30/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.30-integrated.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [下载 Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.31/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.31-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.31/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.31-integrated.zip.sha256)**
 
 > 当前仍为测试版。GitHub 的 Latest 标记用于提供最新下载入口，不代表已完成多机型、真实 OTA、端到端推送或续航验收。详见 [验证记录](static-patch/VALIDATION.md)。
 
-## v0.4.0-alpha.30：FCM 假在线与长连接保活修复（Latest）
+## v0.4.0-alpha.31：持续 DNS 重连失败修复（Latest）
+
+在已确认蜂窝网络断连与原生 DNS 解析失败时，使用临时、TLS 证书核验后的 MCS 域名映射恢复原生连接，随后撤销。健康连接不受影响，不依赖 Box。详见 [发布说明](docs/ALPHA31_RELEASE.md)。
+
+## v0.4.0-alpha.30：FCM 假在线与长连接保活修复
 
 针对显示在线但消息集中延迟投递的问题，仅对经过 GMS UID、进程、实际远端地址、端口及 socket inode 核验的 MCS TCP 连接启用内核 keepalive。不主动发送 GMS 心跳、不重启代理或 GMS、不修改全局 TCP 参数；不支持的设备保留原有行为。详见 [发布说明](docs/ALPHA30_RELEASE.md)。
 
@@ -293,3 +297,4 @@ python static-patch/package.py
 ### v0.4.0-alpha.6：修复“框架已加载但报告缺失”误报
 
 修复 Magisk「操作」页面错误读取仅在异常场景生成的 `backend/last-capabilities.tsv`，导致已成功挂载 `10/10` 的框架被提示 `capabilities.tsv unavailable; generation may have failed`。现在优先读取当前代际的 `backend/<generation>/capabilities.tsv`，把上次构建日志明确标记为历史记录；PowerKeeper 的 APK/类存在不再计入可调用方法签名数，显示 `0 runtime hooks` 以防误解。先执行 APK 探测，再生成同一次健康报告。**只修诊断，无新增 Hook、轮询、框架改写，不影响基础 FCM。**
+

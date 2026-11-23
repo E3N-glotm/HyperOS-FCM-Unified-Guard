@@ -888,6 +888,12 @@ rate_limited_path_log() {
 acquire_guard_lock || exit 0
 trap 'release_guard_lock' EXIT HUP INT TERM
 
+# alpha31: recover only our abandoned temporary resolver overlay.
+if [ -r "$MODDIR/bin/fcm_dns_hosts_fallback.sh" ]; then
+  . "$MODDIR/bin/fcm_dns_hosts_fallback.sh"
+  fcm_hosts_recover_abandoned || { log_msg 'FCM guard: temporary resolver cleanup pending'; exit 0; }
+fi
+
 # Keep the port-only Box exception self-healing across Box rule rebuilds and
 # clean installs before evaluating the GCM state.
 ensure_fcm_uid_bypass
@@ -962,6 +968,10 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
     flush_android_dns "$now"
     if dns_late_native_recovery "$now" "$outage"; then
       soft_reconnect_if_stalled "$now" "$outage" || true
+      exit 0
+    fi
+    if command -v fcm_hosts_fallback >/dev/null 2>&1 &&
+        fcm_hosts_fallback "$now" "$down_since" "$outage" "$unknown_epoch"; then
       exit 0
     fi
     if dns_cellular_rebind_recovery "$now" "$down_since"; then
@@ -1108,3 +1118,4 @@ if [ "$state2" = "connected" ]; then
 else
   log_msg "FCM guard: restart issued but GcmService state=$state2; retry schedule retained"
 fi
+
