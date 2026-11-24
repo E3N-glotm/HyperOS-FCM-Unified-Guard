@@ -2,13 +2,17 @@
 
 **[简体中文](README.md) | English**
 
-A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.31 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
+A single Magisk module combining the Millet/FCM guard, adaptive framework policies, and a scoped **PowerKeeper Zygisk native runtime**. Current recommended release: **v0.4.0-alpha.32 (Latest)**. Neither the FCM Live APK nor LSPosed is required. PowerKeeper native hooks require ARM64 and working Zygisk/Zygisk Next; the base guard and framework backend run independently when Zygisk is unavailable.
 
-**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.31/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.31-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.31/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.31-integrated.zip.sha256)**
+**[Latest Release](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/latest) · [Download Magisk ZIP](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.32/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.32-integrated.zip) · [SHA-256](https://github.com/E3N-glotm/HyperOS-FCM-Unified-Guard/releases/download/v0.4.0-alpha.32/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.32-integrated.zip.sha256)**
 
 > This is still a test build. GitHub's Latest label provides a current download entry; it does not mean that cross-device, real OTA, end-to-end push or battery validation is complete. See the [validation record](static-patch/VALIDATION.md).
 
-## v0.4.0-alpha.31: Persistent DNS reconnect failure fix (Latest)
+## v0.4.0-alpha.32: DNS recovery budget and suspend handling (Latest)
+
+Separates readiness and transaction budgets, adds stage diagnostics and a bounded wake lock. See [release notes](docs/ALPHA32_RELEASE.md).
+
+## v0.4.0-alpha.31: Persistent DNS reconnect failure fix
 
 When a cellular MCS outage and native DNS failure are confirmed, temporarily use a freshly resolved and TLS-verified MCS hostname mapping, then remove it. Healthy connections are unchanged. See [release notes](docs/ALPHA31_RELEASE.md).
 
