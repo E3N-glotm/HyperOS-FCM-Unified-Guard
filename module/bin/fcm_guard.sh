@@ -234,6 +234,31 @@ gcm_reconnect_scheduler_state() {
   fi
 }
 
+# A transient connected=true plus a formatted endpoint does not prove a
+# usable MCS socket. Verify the endpoint against the kernel's established
+# socket and the *real GMS UID* before clearing an outage after GCM_RECONNECT.
+fcm_mcs_endpoint_socket_ready() {
+  ss_endpoint=$1
+  case "$ss_endpoint" in
+    connected=mtalk.google.com/*,port=*|connected=alt[0-9]*-mtalk.google.com/*,port=*) ;;
+    *) return 1;;
+  esac
+  ss_peer=${ss_endpoint#*/}
+  ss_peer=${ss_peer%,port=*}
+  ss_peer=${ss_peer#\[}
+  ss_peer=${ss_peer%\]}
+  ss_peer=${ss_peer#::ffff:}
+  ss_port=${ss_endpoint##*,port=}
+  case "$ss_peer" in ''|*[!0-9a-fA-F:.]*) return 1;; esac
+  case "$ss_port" in 5228|5229|5230) ;; *) return 1;; esac
+  command -v ss >/dev/null 2>&1 || return 1
+  [ -r "$MODDIR/bin/fcm_socket_keepalive.sh" ] || return 1
+  ss_uid=$(gms_uid_for_probe 2>/dev/null) || return 1
+  . "$MODDIR/bin/fcm_socket_keepalive.sh"
+  [ -n "$(run_timeout ss -Htnpe state established "( dport = :$ss_port )" 2>/dev/null \
+      | fcm_mcs_socket_tuple "$ss_peer" "$ss_port" "$ss_uid")" ]
+}
+
 soft_reconnect_if_stalled() {
   soft_now=$1
   soft_outage=$2
@@ -299,8 +324,8 @@ soft_reconnect_if_stalled() {
   endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
     | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
   if [ "$soft_state" = connected ] \
-      && printf '%s\n' "$endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
-    log_msg "FCM guard: soft reconnect verified ${endpoint}"
+      && fcm_mcs_endpoint_socket_ready "$endpoint"; then
+    log_msg "FCM guard: soft reconnect MCS socket verified ${endpoint}"
     rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$DNSOK_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
     return 0
   fi
