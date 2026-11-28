@@ -1,0 +1,79 @@
+name: Build and publish HyperOS FCM Unified Guard alpha33
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/alpha33-release.yml']
+permissions:
+  contents: write
+concurrency:
+  group: alpha33-build-publish
+  cancel-in-progress: false
+jobs:
+  release-alpha33:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate repair logic and module boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in module/*.sh module/bin/*.sh static-patch/overlay/*.sh static-patch/overlay/bin/*.sh; do sh -n "$f"; done
+          for f in \
+            tests/test_pk_boot_guard_alpha25.sh \
+            tests/test_fcm_uid_route_alpha12.sh \
+            tests/test_fcm_dns_recovery_alpha11.sh \
+            tests/test_fcm_guard_policy.sh \
+            tests/test_mcs_443_auto_recovery.sh \
+            tests/test_fcm_soft_reconnect_cellular.sh \
+            tests/test_fcm_runtime.sh \
+            tests/test_gtalk_single_event_worker.sh \
+            tests/test_worker_identity.sh \
+            tests/test_settings_fail_closed.sh
+          do
+            sh "$f"
+          done
+          for f in tests/test_*.py; do python3 "$f"; done
+      - name: Build audited delta over official alpha32 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=HyperOS-FCM-Unified-Guard-v0.4.0-alpha.32-integrated.zip
+          OUT=dist/HyperOS-FCM-Unified-Guard-v0.4.0-alpha.33-integrated.zip
+          gh release download v0.4.0-alpha.32 --pattern "$BASE" --dir "$RUNNER_TEMP"
+          python3 tools/package_alpha33.py "$RUNNER_TEMP/$BASE" "$OUT"
+          (cd dist && sha256sum -c *.sha256)
+          python3 - "$OUT" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              assert z.testzip() is None
+              assert z.read("module.prop").count(b"version=0.4.0-alpha.33\n") == 1
+              assert z.read("module.prop").count(b"versionCode=40033\n") == 1
+              for path in ("zygisk/arm64-v8a.so", "powerkeeper-runtime.dex",
+                           "bin/fcmu_alarm_wait", "bin/fcmu_socket_keepalive",
+                           "bin/fcm_guard.sh"):
+                  assert len(z.read(path)) > 0, path
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FCM-Unified-Guard-alpha33
+          path: dist/*
+          if-no-files-found: error
+      - name: Publish verified alpha33 Release as Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=v0.4.0-alpha.33
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release tag already exists; refusing to overwrite immutable assets" >&2
+            exit 1
+          fi
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title 'HyperOS FCM Unified Guard v0.4.0-alpha.33 (Auto Recovery)' \
+            --notes-file docs/ALPHA33_RELEASE.md --latest
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
