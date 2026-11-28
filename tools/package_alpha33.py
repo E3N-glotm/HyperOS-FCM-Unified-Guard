@@ -26,12 +26,16 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def package(base_path: pathlib.Path, output_path: pathlib.Path) -> None:
+def package(base_path: pathlib.Path, output_path: pathlib.Path, guard_path: pathlib.Path | None = None) -> None:
     repo = pathlib.Path(__file__).resolve().parents[1]
     base_bytes = base_path.read_bytes()
     assert sha(base_bytes) == BASE_SHA256, "alpha32 base is not the audited GitHub release"
 
-    guard_bytes = (repo / "module/bin/fcm_guard.sh").read_bytes()
+    guard_bytes = (guard_path or (repo / "module/bin/fcm_guard.sh")).read_bytes()
+    blob = hashlib.sha1(b"blob " + str(len(guard_bytes)).encode("ascii") + b"\0" + guard_bytes).hexdigest()
+    assert blob == "f84b8132cba8bf8572c8c3a1efb7c25a695fb4c8", (
+        "FCM recovery source changed without updating the audited alpha33 source revision"
+    )
     assert guard_bytes.startswith(b"#!/system/bin/sh\n")
     assert b"\r" not in guard_bytes, "guard must use LF"
     required = (
@@ -114,6 +118,7 @@ def package(base_path: pathlib.Path, output_path: pathlib.Path) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit("usage: package_alpha33.py AUDITED_ALPHA32_ZIP OUTPUT_ALPHA33_ZIP")
-    package(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]))
+    if len(sys.argv) not in (3, 4):
+        sys.exit("usage: package_alpha33.py AUDITED_ALPHA32_ZIP OUTPUT_ALPHA33_ZIP [AUDITED_GUARD_SOURCE]")
+    package(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]),
+            pathlib.Path(sys.argv[3]) if len(sys.argv) == 4 else None)
