@@ -22,6 +22,7 @@ MOCK
 chmod 700 "$T/mockbb"
 BB="$T/mockbb"
 android_resolve_mtalk() { echo 74.125.142.188; }
+android_resolve_gms_domain() { [ "$1" = mtalk.google.com ] || return 1; echo 74.125.142.188; }
 gms_uid_for_probe() { echo 10139; }
 run_timeout() { echo '    connected=mtalk.google.com/74.125.142.188,port=5228'; }
 log_msg() { printf '%s\n' "$*" >> "$T/health-log"; }
@@ -30,12 +31,12 @@ export TEST_TCP
 # A root/TProxy route would appear healthy, but all UID-bound probes fail.
 got=$(fcm_path_ready || true)
 [ -z "$got" ] || { echo "FAIL: root-only route incorrectly authorized a restart: $got"; exit 1; }
-[ "$(wc -l < "$T/uid-probes.log" | tr -d ' ')" -eq 3 ] || { echo 'FAIL: did not try UID-bound ports 5228-5230'; exit 1; }
+[ "$(wc -l < "$T/uid-probes.log" | tr -d ' ')" -eq 4 ] || { echo 'FAIL: did not try UID-bound MCS ports 5228-5230 and fallback 443'; exit 1; }
 grep -q '10139 -c /system/bin/toybox nc' "$T/uid-probes.log" || { echo 'FAIL: probe not bound to GMS UID'; exit 1; }
 TEST_TCP=ok
 export TEST_TCP
 got=$(fcm_path_ready)
-[ "$got" = 'gms-uid 74.125.142.188 5228' ] || { echo "FAIL: UID network success misreported: $got"; exit 1; }
+[ "$got" = 'gms-uid:mtalk.google.com 74.125.142.188 5228' ] || { echo "FAIL: UID network success misreported: $got"; exit 1; }
 previous=$(wc -l < "$T/uid-probes.log" | tr -d ' ')
 KEEPALIVE_FILE="$T/run/fcm_keepalive.epoch"
 printf '%s\n' 0 > "$KEEPALIVE_FILE"
@@ -47,4 +48,4 @@ if printf '%s\n' "$body" | grep -Eq 'am broadcast| -a com.google.android.intent.
   echo 'FAIL: healthy state still forces MCS_HEARTBEAT'
   exit 1
 fi
-echo 'PASS alpha12: UID-bound 5228 route proof; root false-positive blocked; passive health checks only'
+echo 'PASS alpha12: UID-bound 5228/443 path proof; root false-positive blocked; passive health checks only'
