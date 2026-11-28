@@ -1,6 +1,7 @@
 name: Build and publish HyperOS FCM Unified Guard alpha33
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches: [main]
     paths: ['.github/workflows/alpha33-release.yml']
@@ -62,6 +63,7 @@ jobs:
           path: dist/*
           if-no-files-found: error
       - name: Publish verified alpha33 Release as Latest
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
