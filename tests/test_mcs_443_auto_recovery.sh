@@ -35,9 +35,9 @@ if fcm_mcs_endpoint_socket_ready 'connected=alt2-mtalk.google.com/172.217.78.187
   FAIL "wrong MCS peer falsely accepted"
 fi
 NETWORK_RESULT='Active default network: 299
-NetworkAgentInfo{network{299} Transports: WIFI Capabilities: INTERNET&VALIDATED}'
+NetworkAgentInfo{network{299} Score(EVER_VALIDATED) nc{[ Transports: WIFI Capabilities: INTERNET&VALIDATED LinkUpBandwidth>=200Kbps]}'
 fcm_default_net_validated || FAIL "validated network not recognized"
 NETWORK_RESULT='Active default network: 299
-NetworkAgentInfo{network{299} Transports: WIFI Capabilities: INTERNET}'
+NetworkAgentInfo{network{299} Score(EVER_VALIDATED) nc{[ Transports: WIFI Capabilities: INTERNET LinkUpBandwidth>=200Kbps]}'
 if fcm_default_net_validated; then FAIL "unvalidated network accepted"; fi
 echo 'Unified MCS443 bounded auto-recovery regression: PASS'
