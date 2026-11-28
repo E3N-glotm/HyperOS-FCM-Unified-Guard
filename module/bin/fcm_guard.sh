@@ -922,6 +922,21 @@ rate_limited_path_log() {
   fi
 }
 
+# Last-resort GMS-only recycle must never act on a completely unvalidated
+# network. Android's default NetId and its INTERNET+VALIDATED capability must
+# refer to the SAME network, otherwise we leave Box/modem/Wi-Fi alone.
+fcm_default_net_validated() {
+  net_status=$(run_timeout dumpsys connectivity 2>/dev/null) || return 1
+  active_net=$(printf '%s\n' "$net_status" | awk '
+    $1=="Active" && $2=="default" && $3=="network:" &&
+    $4 ~ /^[0-9]+$/ {print $4;exit}')
+  case "$active_net" in ''|*[!0-9]*) return 1;; esac
+  printf '%s\n' "$net_status" | awk -v id="$active_net" '
+    index($0,"network{"id"}") && /Capabilities:/ &&
+    /INTERNET/ && /VALIDATED/ {verified=1}
+    END {exit !verified}'
+}
+
 # Polling and the event worker can wake at the same time. Serialize the whole
 # guard so they cannot duplicate firewall rules or race restart accounting.
 acquire_guard_lock || exit 0
@@ -1027,10 +1042,9 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
     if [ -r "$MODDIR/bin/fcm_dns_box_repair.sh" ]; then
       repaired=$("$BB" timeout 85 /system/bin/sh "$MODDIR/bin/fcm_dns_box_repair.sh" repair 2>/dev/null || true)
       if [ "$repaired" = BOX_FCM_DNS_RECOVERY_TRIGGERED ]; then
-        # Box's own lifecycle rebuilds its chains. Restore this narrow
-        # GMS TCP bypass after it finishes, never modify DNS/other UIDs.
+        # Let the Box recovery settle before any further GMS intervention.
         ensure_fcm_uid_bypass
-        # Re-evaluate DNS via the ordinary next poll, not a busy retry loop.
+        exit 0
       elif [ "$outage" -ge 900 ] 2>/dev/null; then
         # alpha18: independent, read-only flight recorder BEFORE the fallback
         # makes a decision. It persists the exact failing gate (route, UID,
@@ -1052,6 +1066,7 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
           "$MODDIR/bin/fcm_dns_box_repair.sh" fallback "$down_since" 2>/dev/null || true)
         if [ "$fallback" = BOX_FCM_DNS_RECOVERY_TRIGGERED ]; then
           ensure_fcm_uid_bypass
+          exit 0
         fi
       fi
     fi
@@ -1063,13 +1078,16 @@ if [ "$outage" -ge 60 ] 2>/dev/null; then
       rate_limited_dns_log "$now" "Android resolver cannot resolve mtalk.google.com; no GMS restart"
     fi
     soft_reconnect_if_stalled "$now" "$outage" dns-failed || true
-    exit 0
+    # All scoped DNS and Box recovery paths have already had first refusal.
+    # Do not permanently block every other recovery mode: after 30 minutes,
+    # a strictly bounded GMS-only fallback may run on a VALIDATED network.
+    [ "$outage" -ge 1800 ] 2>/dev/null || exit 0
   fi
 
   # Require two observations at least 90 seconds apart before permitting the
   # existing 5228-5230 path proof / rate-limited GMS fallback. Do not turn an
   # old UNKNOWN_HOST into a perpetually renewed DNS failure timestamp.
-  if [ -f "$DNSFAIL_FILE" ]; then
+  if [ -n "$android_ip" ] && [ -f "$DNSFAIL_FILE" ]; then
     dns_ok_since=$(cat "$DNSOK_FILE" 2>/dev/null)
     case "$dns_ok_since" in ''|*[!0-9]*) dns_ok_since=0;; esac
     if [ "$dns_ok_since" -eq 0 ] 2>/dev/null || [ "$dns_ok_since" -gt "$now" ] 2>/dev/null; then
@@ -1105,14 +1123,22 @@ fi
 # Distinguish a stuck GMS/MCS client from a genuine FCM path outage. Restarting
 # GMS cannot repair an unreachable network and would only waste battery.
 path=$(fcm_path_ready 2>/dev/null || true)
+verified_mcs=1
 if [ -z "$path" ]; then
+  verified_mcs=0
   rate_limited_path_log "$now"
-  exit 0
+  [ "$outage" -ge 1800 ] 2>/dev/null || exit 0
+  fcm_default_net_validated || exit 0
+  path="validated-network unverified 0"
+else
+  rm -f "$PATHLOG_FILE" 2>/dev/null || true
 fi
-rm -f "$PATHLOG_FILE" 2>/dev/null || true
 
 attempts=$(cat "$ATTEMPT_FILE" 2>/dev/null)
 case "$attempts" in ''|*[!0-9]*) attempts=0;; esac
+# At most two GMS-only recycles per outage when the FCM destination is not
+# actually reachable. Existing global 1h..12h restart cool-down still applies.
+[ "$verified_mcs" = 1 ] || [ "$attempts" -lt 2 ] || exit 0
 last=$(cat "$LAST_FILE" 2>/dev/null)
 case "$last" in ''|*[!0-9]*) last=0;; esac
 
@@ -1135,8 +1161,15 @@ rest=${path#* }
 ip=${rest%% *}
 port=${rest##* }
 android_ip=$(android_resolve_mtalk 2>/dev/null || true)
-[ -n "$android_ip" ] || exit 0
-log_msg "FCM guard: outage=${outage}s fcm_path=ok resolver=$resolver endpoint=$ip:$port android_resolver=$android_ip; restarting GMS-host pid=$gpid attempt=$((attempts+1))"
+[ -n "$android_ip" ] || android_ip=primary-unavailable
+if [ "$verified_mcs" = 1 ]; then
+  log_msg "FCM guard: outage=${outage}s MCS UID path verified resolver=$resolver endpoint=$ip:$port primary_dns=$android_ip; restarting GMS-host pid=$gpid attempt=$((attempts+1))"
+else
+  log_msg "FCM guard: LAST-RESORT outage=${outage}s validated default network but MCS route unknown; GMS-host-only restart pid=$gpid attempt=$((attempts+1))"
+fi
+expected_uid=$(gms_uid_for_probe) || exit 0
+actual_uid=$(awk '/^Uid:/{print $2;exit}' "/proc/$gpid/status" 2>/dev/null)
+[ "$actual_uid" = "$expected_uid" ] || exit 0
 echo "$now" > "$LAST_FILE"
 echo $((attempts+1)) > "$ATTEMPT_FILE"
 kill -TERM "$gpid" 2>/dev/null || exit 0
@@ -1148,9 +1181,9 @@ if [ "$state2" = "connected" ]; then
   [ -n "$newpid" ] || newpid=$(pidof com.google.android.gms 2>/dev/null | awk '{print $1}')
   endpoint=$(run_timeout dumpsys activity service com.google.android.gms/.gcm.GcmService 2>/dev/null \
     | grep -m1 'connected=' | sed 's/^[[:space:]]*//' || true)
-  if printf '%s\n' "$endpoint" | grep -Eq 'connected=[^[:space:]]+.*port=[0-9]+'; then
+  if fcm_mcs_endpoint_socket_ready "$endpoint"; then
     rm -f "$DOWN_FILE" "$ATTEMPT_FILE" "$PATHLOG_FILE" "$DNSLOG_FILE" "$DNSFAIL_FILE" "$DNSOK_FILE" "$SOFT_RECONNECT_FILE" 2>/dev/null || true
-    log_msg "FCM guard: recovered newpid=${newpid:-unknown} ${endpoint}"
+    log_msg "FCM guard: recovered newpid=${newpid:-unknown} GMS-owned MCS socket verified $endpoint"
   else
     log_msg "FCM guard: restart yielded connected=true but no MCS endpoint; retry schedule retained"
   fi
