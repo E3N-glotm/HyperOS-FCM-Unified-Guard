@@ -121,4 +121,12 @@ status=16777984
 err=$(( (status / 256) % 256 ))
 [ "$err" -eq 3 ] || fail "gtalk_connection UNKNOWN_HOST decoder regression"
 
+# A false connected flag must never erase outage evidence unless a matching
+# established MCS socket belongs to the *actual* GMS UID and endpoint.
+grep -q 'fcm_mcs_endpoint_socket_ready "$endpoint"' "$GUARD" \
+  || fail "soft reconnect can still declare success without a verified socket"
+grep -q 'fcm_mcs_socket_tuple "$ss_peer" "$ss_port" "$ss_uid"' "$GUARD" \
+  || fail "MCS verification does not bind host, port and GMS UID"
+grep -q 'soft reconnect MCS socket verified' "$GUARD" \
+  || fail "successful recovery log must indicate kernel socket verification"
 echo "FCM guard policy regression checks passed"

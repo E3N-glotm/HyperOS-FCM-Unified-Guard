@@ -15,11 +15,19 @@ acquire_guard_lock() { return 0; }
 release_guard_lock() { return 0; }
 ensure_fcm_uid_bypass() { return 0; }
 fcm_state() { echo disconnected; }
-pidof() { echo 12345; }
+pidof() { echo "$$"; }
+# New recovery safeguards verify the target PID's real /proc UID before
+# issuing any signal. Use this ephemeral isolated test shell as the target.
+gms_uid_for_probe() { id -u; }
 recent_gms_unknown_host_epoch() { echo $((TEST_NOW-8)); }
 android_resolve_mtalk() { [ "$TEST_DNS" = ok ] || return 1; echo '142.250.99.188'; }
 soft_reconnect_if_stalled() { printf 'soft %s\n' "$TEST_NOW" >> "$TEST_TMP/soft.log"; return 1; }
-fcm_path_ready() { printf 'android 142.250.99.188 5228\n'; }
+fcm_path_ready() {
+  # The test's primary resolver failure must not simultaneously fabricate a
+  # verified alternate MCS path. Production may escalate only with real proof.
+  [ "$TEST_DNS" = ok ] || return 1
+  printf 'android 142.250.99.188 5228\n'
+}
 flush_android_dns() { :; }
 kill() { echo "kill $TEST_NOW $*" >> "$TEST_TMP/kills.log"; return 0; }
 sleep() { :; }
