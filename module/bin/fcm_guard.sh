@@ -926,15 +926,29 @@ rate_limited_path_log() {
 # network. Android's default NetId and its INTERNET+VALIDATED capability must
 # refer to the SAME network, otherwise we leave Box/modem/Wi-Fi alone.
 fcm_default_net_validated() {
-  net_status=$(run_timeout dumpsys connectivity 2>/dev/null) || return 1
-  active_net=$(printf '%s\n' "$net_status" | awk '
-    $1=="Active" && $2=="default" && $3=="network:" &&
-    $4 ~ /^[0-9]+$/ {print $4;exit}')
-  case "$active_net" in ''|*[!0-9]*) return 1;; esac
-  printf '%s\n' "$net_status" | awk -v id="$active_net" '
-    index($0,"network{"id"}") && /Capabilities:/ &&
-    /INTERNET/ && /VALIDATED/ {verified=1}
-    END {exit !verified}'
+  # Large Android17 dumpsys connectivity output must be parsed as a stream;
+  # placing the whole dump into an expanded shell variable can exceed
+  # MAX_ARG_STRLEN and silently disable the last-resort recovery path.
+  run_timeout dumpsys connectivity 2>/dev/null | awk '
+    $1=="Active" && $2=="default" && $3=="network:" {
+      id=$4
+      if (id !~ /^[0-9]+$/) id=""
+      next
+    }
+    id!="" && index($0,"NetworkAgentInfo{") &&
+      index($0,"network{"id"}") {
+      n=index($0,"nc{[")
+      if (!n) next
+      caps=substr($0,n)
+      if (caps !~ /Capabilities:/) next
+      sub(/^.*Capabilities:[[:space:]]*/,"",caps)
+      sub(/[[:space:]].*$/,"",caps)
+      caps="&"caps"&"
+      if (index(caps,"&INTERNET&") && index(caps,"&VALIDATED&"))
+        matched=1
+    }
+    END {exit !matched}
+  '
 }
 
 # Polling and the event worker can wake at the same time. Serialize the whole
