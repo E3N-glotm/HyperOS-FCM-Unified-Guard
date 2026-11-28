@@ -72,8 +72,15 @@ def package(base_path: pathlib.Path, output_path: pathlib.Path, guard_path: path
                 elif info.filename == MANIFEST:
                     payload = updated_meta
                 dst.writestr(info, payload)
+            # Pin the new note's DOS timestamp and Unix file mode so
+            # repeated builds do not change the ZIP just because clock time
+            # advanced between local validation and GitHub Actions.
+            note_info = zipfile.ZipInfo(NOTE, date_time=(2026, 11, 28, 0, 0, 0))
+            note_info.compress_type = zipfile.ZIP_DEFLATED
+            note_info.create_system = 3
+            note_info.external_attr = 0o100644 << 16
             dst.writestr(
-                NOTE,
+                note_info,
                 (
                     "HyperOS FCM Unified Guard v0.4.0-alpha.33\n"
                     "Preserves all existing alpha32 native PowerKeeper/Zygisk, "
