@@ -1115,6 +1115,14 @@ if soft_reconnect_if_stalled "$now" "$outage"; then
   exit 0
 fi
 
+# Do not restart GMS in the same guard pass that just delivered the
+# low-impact GCM_RECONNECT intent. Give native MCS at least 120 seconds.
+recent_soft=$(cat "$SOFT_RECONNECT_FILE" 2>/dev/null)
+case "$recent_soft" in ''|*[!0-9]*) recent_soft=0;; esac
+if [ "$recent_soft" -gt 0 ] && [ $((now-recent_soft)) -lt 120 ]; then
+  exit 0
+fi
+
 # Give Google's own reconnect logic five minutes before intervention. The old
 # 10m grace plus 30/60/120m retry schedule could turn one stuck MCS state into
 # a multi-hour push outage.
