@@ -15,7 +15,7 @@ acquire_guard_lock() { return 0; }
 release_guard_lock() { return 0; }
 ensure_fcm_uid_bypass() { return 0; }
 fcm_state() { echo disconnected; }
-pidof() { echo "$"; }
+pidof() { echo "$$"; }
 # New recovery safeguards verify the target PID's real /proc UID before
 # issuing any signal. Use this ephemeral isolated test shell as the target.
 gms_uid_for_probe() { id -u; }
