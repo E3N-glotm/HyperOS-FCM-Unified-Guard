@@ -250,7 +250,7 @@ fcm_mcs_endpoint_socket_ready() {
   ss_peer=${ss_peer#::ffff:}
   ss_port=${ss_endpoint##*,port=}
   case "$ss_peer" in ''|*[!0-9a-fA-F:.]*) return 1;; esac
-  case "$ss_port" in 5228|5229|5230) ;; *) return 1;; esac
+  case "$ss_port" in 5228|5229|5230|443) ;; *) return 1;; esac
   command -v ss >/dev/null 2>&1 || return 1
   [ -r "$MODDIR/bin/fcm_socket_keepalive.sh" ] || return 1
   ss_uid=$(gms_uid_for_probe 2>/dev/null) || return 1
@@ -360,35 +360,49 @@ gms_uid_tcp_ready() {
 }
 
 fcm_path_ready() {
-  ip=$(android_resolve_mtalk 2>/dev/null || true)
-  [ -n "$ip" ] || return 1
-  for port in 5228 5229 5230; do
-    if gms_uid_tcp_ready "$ip" "$port"; then
-      printf '%s %s %s\n' gms-uid "$ip" "$port"
-      return 0
-    fi
+  # The verified GMS process may use 443 with an alternate FCM host.
+  # Never permit arbitrary 443 traffic to count as an MCS path proof.
+  for host in mtalk.google.com alt1-mtalk.google.com alt2-mtalk.google.com alt3-mtalk.google.com; do
+    ip=$(android_resolve_gms_domain "$host" 2>/dev/null || true)
+    [ -n "$ip" ] || continue
+    if [ "$host" = mtalk.google.com ]; then ports="5228 5229 5230 443"
+    else ports="443 5228"; fi
+    for port in $ports; do
+      if gms_uid_tcp_ready "$ip" "$port"; then
+        printf 'gms-uid:%s %s %s\n' "$host" "$ip" "$port"
+        return 0
+      fi
+    done
   done
   return 1
 }
 
-android_resolve_mtalk() {
-  # Resolve with the same application UID as GMS. This exercises Android
-  # libc/netd resolution and per-UID network policy rather than root's path.
+android_resolve_gms_domain() {
+  host=$1
+  case "$host" in mtalk.google.com|alt[0-9]-mtalk.google.com) ;; *) return 1;; esac
   uid=$(gms_uid_for_probe 2>/dev/null || true)
   case "$uid" in ''|*[!0-9]*) return 1;; esac
   command -v su >/dev/null 2>&1 || return 1
   out=$(run_timeout su -s /system/bin/sh "$uid" -c \
-    "/system/bin/ping -c 1 -W 1 mtalk.google.com" 2>&1 || true)
+    "/system/bin/ping -c 1 -W 1 $host" 2>&1 || true)
   ip=$(printf '%s\n' "$out" | awk '
     /^PING[[:space:]]+[^[:space:]]+[[:space:]]/ {
-      if (match($0, /\([0-9][0-9.]*\)/)) {
-        value=substr($0, RSTART+1, RLENGTH-2)
-        if (split(value, octets, ".") == 4) { print value; exit }
+      if (match($0,/\([0-9][0-9.]*\)/)) {
+        value=substr($0,RSTART+1,RLENGTH-2)
+        if(split(value,o,".")==4) {
+          valid=1
+          for (i=1;i<=4;i++) if(o[i]!~/^[0-9]+$/||o[i]>255) valid=0
+          if(valid){print value;exit}
+        }
       }
     }
   ')
   case "$ip" in *.*.*.*) printf '%s\n' "$ip"; return 0;; esac
   return 1
+}
+
+android_resolve_mtalk() {
+  android_resolve_gms_domain mtalk.google.com
 }
 
 recent_gms_unknown_host_epoch() {
